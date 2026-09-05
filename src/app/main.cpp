@@ -28,6 +28,25 @@
 
 namespace {
 
+void configureSteamDeckPlatform()
+{
+#if defined(Q_OS_LINUX)
+    const QByteArray qpa = qgetenv("QT_QPA_PLATFORM").trimmed().toLower();
+    const QByteArray desktop = qgetenv("XDG_CURRENT_DESKTOP").toLower();
+    const bool inGamescope = !qgetenv("GAMESCOPE_WAYLAND_DISPLAY").isEmpty()
+        || !qgetenv("SteamGamepadUI").isEmpty()
+        || desktop.contains("gamescope");
+
+    // The packaged AppImage defaults to xcb. Inside Steam Gaming Mode that
+    // unnecessarily pins Qt to XWayland and can leave the launcher with a dead
+    // X11 connection when Gamescope changes focus/surfaces. Let Qt select the
+    // native platform in Gamescope instead. Desktop sessions keep the original
+    // packaged default and users can still explicitly choose a QPA platform.
+    if (inGamescope && qpa == "xcb")
+        qunsetenv("QT_QPA_PLATFORM");
+#endif
+}
+
 void configureQmlEngine(QQmlApplicationEngine& engine)
 {
     const QString appDir = QCoreApplication::applicationDirPath();
@@ -88,6 +107,8 @@ void applyTranslations(QQmlApplicationEngine& engine, QCoreApplication& app)
 
 int main(int argc, char* argv[])
 {
+    configureSteamDeckPlatform();
+
 #if !defined(Q_OS_WIN)
     QApplication app(argc, argv);
 #else
