@@ -9,14 +9,36 @@ MD.Pane {
     property int currentIndex: 0
     property var model: []
     property int downloadBadge: 0
+    property int keyboardIndex: currentIndex
 
     signal activated(int index)
     signal settingsRequested()
 
     padding: 0
     backgroundColor: MD.Token.color.surface_container
-    // Wide enough for "Библиотека" under icon
     implicitWidth: 108
+    activeFocusOnTab: true
+    focus: true
+
+    Keys.onPressed: function(event) {
+        if (!root.model || root.model.length === 0)
+            return
+        if (event.key === Qt.Key_Down || event.key === Qt.Key_Right) {
+            root.keyboardIndex = Math.min(root.model.length - 1, root.keyboardIndex + 1)
+            event.accepted = true
+        } else if (event.key === Qt.Key_Up || event.key === Qt.Key_Left) {
+            root.keyboardIndex = Math.max(0, root.keyboardIndex - 1)
+            event.accepted = true
+        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+            root.activated(root.keyboardIndex)
+            event.accepted = true
+        } else if (event.key === Qt.Key_S) {
+            root.settingsRequested()
+            event.accepted = true
+        }
+    }
+
+    onCurrentIndexChanged: keyboardIndex = currentIndex
 
     ColumnLayout {
         anchors.fill: parent
@@ -45,7 +67,11 @@ MD.Pane {
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: root.activated(0)
+                onClicked: {
+                    root.keyboardIndex = 0
+                    root.forceActiveFocus()
+                    root.activated(0)
+                }
             }
         }
 
@@ -65,6 +91,7 @@ MD.Pane {
                 Layout.rightMargin: MD.Token.spacing.small
 
                 readonly property bool selected: index === root.currentIndex
+                readonly property bool deckFocused: root.activeFocus && index === root.keyboardIndex
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -82,14 +109,16 @@ MD.Pane {
                             radius: MD.Token.shape.corner.full
                             color: railEntry.selected
                                    ? MD.Token.color.secondary_container
-                                   : "transparent"
+                                   : railEntry.deckFocused
+                                     ? MD.Token.color.surface_container_highest
+                                     : "transparent"
+                            border.width: railEntry.deckFocused ? 2 : 0
+                            border.color: MD.Token.color.primary
                             elevation: MD.Token.elevation.level0
                             scale: railEntry.selected ? 1 : 0.92
                             transformOrigin: Item.Center
 
-                            Behavior on color {
-                                ColorAnimation { duration: MD.Token.duration.short4 }
-                            }
+                            Behavior on color { ColorAnimation { duration: MD.Token.duration.short4 } }
                             Behavior on scale {
                                 NumberAnimation {
                                     duration: MD.Token.duration.short4
@@ -128,19 +157,20 @@ MD.Pane {
                         typescale: MD.Token.typescale.label_small
                         elide: Text.ElideRight
                         maximumLineCount: 1
-                        color: railEntry.selected
-                               ? MD.Token.color.on_surface
-                               : MD.Token.color.on_surface_variant
+                        color: railEntry.selected ? MD.Token.color.on_surface : MD.Token.color.on_surface_variant
                     }
                 }
 
                 MouseArea {
                     anchors.fill: parent
+                    hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    // Don't assign currentIndex here - that breaks the parent's
-                    // `currentIndex: pageIndex` binding and leaves the rail stuck
-                    // (e.g. Discover stays highlighted after "All games" → Catalog).
-                    onClicked: root.activated(railEntry.index)
+                    onEntered: root.keyboardIndex = railEntry.index
+                    onClicked: {
+                        root.keyboardIndex = railEntry.index
+                        root.forceActiveFocus()
+                        root.activated(railEntry.index)
+                    }
                 }
             }
         }
