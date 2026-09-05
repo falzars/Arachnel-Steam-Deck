@@ -331,7 +331,7 @@ Item {
 
         MD.Label {
             id: detailLabel
-            width: Math.max(shell.width, implicitWidth)
+            width: shell.width
             visible: root.embedDetail && root.transferDetailVisible
             text: root.transferLine
             color: MD.Token.color.primary
