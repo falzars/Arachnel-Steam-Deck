@@ -35,6 +35,8 @@ MD.BottomSheet {
     }
     readonly property bool onLinux: Qt.platform.os === "linux"
     readonly property var availableLaunchOptions: root.gameId.length ? Core.gameLaunchOptions(root.gameId) : []
+    readonly property var singleLaunchOption: root.availableLaunchOptions.length > 0
+        ? root.availableLaunchOptions[0] : null
     readonly property string currentSelectedLaunchOption: root.info.selectedLaunchOptionId ?? ""
     readonly property var installedComponents: {
         const _rev = root.detailsRevision
@@ -401,7 +403,9 @@ MD.BottomSheet {
 
                                 MD.Label {
                                     Layout.fillWidth: true
-                                    text: root.availableLaunchOptions[0].title || qsTr("Default")
+                                    text: root.singleLaunchOption
+                                        ? (root.singleLaunchOption.title || qsTr("Default"))
+                                        : qsTr("Default")
                                     typescale: MD.Token.typescale.body_medium
                                     color: MD.Token.color.on_surface
                                 }
@@ -409,7 +413,9 @@ MD.BottomSheet {
                                 MD.Label {
                                     Layout.fillWidth: true
                                     text: {
-                                        const opt = root.availableLaunchOptions[0]
+                                        const opt = root.singleLaunchOption
+                                        if (!opt)
+                                            return ""
                                         let desc = opt.executable || ""
                                         if (opt.arguments && opt.arguments.length > 0)
                                             desc += " " + (Array.isArray(opt.arguments) ? opt.arguments.join(" ") : opt.arguments)
@@ -571,7 +577,6 @@ MD.BottomSheet {
                 }
             }
         }
-
 
         GameSettingsRuntimePanel {
             Layout.fillWidth: true
