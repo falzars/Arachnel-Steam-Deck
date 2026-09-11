@@ -28,6 +28,12 @@ Column {
         shelfList.contentX = Math.max(0, Math.min(maxX, shelfList.contentX + delta))
     }
 
+    function focusOutside(forward) {
+        const item = shelfList.nextItemInFocusChain(forward)
+        if (item && item !== shelfList)
+            item.forceActiveFocus(Qt.TabFocusReason)
+    }
+
     RowLayout {
         width: parent.width
         spacing: MD.Token.spacing.small
@@ -67,6 +73,38 @@ Column {
         boundsBehavior: Flickable.StopAtBounds
         reuseItems: true
         cacheBuffer: page.cardWidth * 4
+        activeFocusOnTab: true
+        keyNavigationEnabled: true
+        keyNavigationWraps: false
+        currentIndex: count > 0 ? 0 : -1
+
+        Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                    || event.key === Qt.Key_Space || event.key === Qt.Key_Select) {
+                if (shelfList.currentItem) {
+                    const entryId = shelfList.currentItem.entryId ?? ""
+                    if (entryId.length)
+                        page.openGame(entryId)
+                }
+                event.accepted = true
+            } else if (event.key === Qt.Key_Up) {
+                root.focusOutside(false)
+                event.accepted = true
+            } else if (event.key === Qt.Key_Down) {
+                root.focusOutside(true)
+                event.accepted = true
+            }
+        }
+
+        highlightFollowsCurrentItem: true
+        highlightMoveDuration: 80
+        highlight: Rectangle {
+            radius: MD.Token.shape.corner.large
+            color: "transparent"
+            border.width: shelfList.activeFocus ? 2 : 0
+            border.color: MD.Token.color.primary
+        }
+
         // Carousel arrows replace the scrollbar.
         ScrollBar.horizontal: ScrollBar {
             policy: ScrollBar.AlwaysOff
