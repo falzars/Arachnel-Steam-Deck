@@ -103,6 +103,9 @@ private:
     QSet<QString> m_installingAddons;
     QHash<QString, QStringList> m_installSelectedAddons;
     QHash<QString, GameInstallSession> m_installSessions;
+    // Every async install captures the current generation. Cancelling an entry bumps
+    // it, so a late plugin callback cannot commit files or resurrect UI state.
+    QHash<QString, quint64> m_installGeneration;
 };
 
 } // namespace arachnel::core
