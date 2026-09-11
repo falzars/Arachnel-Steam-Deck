@@ -9,6 +9,8 @@ MD.ElevationRectangle {
 
     property var group: ({})
     property bool expanded: false
+    property int controllerIndex: -1
+    property var controllerView: null
 
     signal openDetails(string entryId)
     signal expansionToggled(bool expanded)
@@ -17,6 +19,63 @@ MD.ElevationRectangle {
     readonly property bool hasAddons: !!(group.hasAddons) && addons.length > 0
     readonly property bool gameJobActive: jobIsActive(root.group)
     readonly property int expandColumnWidth: root.hasAddons ? 40 : 0
+
+    activeFocusOnTab: true
+
+    function focusChain(forward) {
+        const item = root.nextItemInFocusChain(forward)
+        if (item && item !== root)
+            item.forceActiveFocus(Qt.TabFocusReason)
+    }
+
+    function focusControllerRow(nextIndex) {
+        const view = root.controllerView
+        if (!view || nextIndex < 0 || nextIndex >= view.count)
+            return false
+        view.currentIndex = nextIndex
+        view.positionViewAtIndex(nextIndex, ListView.Contain)
+        Qt.callLater(function () {
+            if (view.currentItem && view.currentItem.cardItem)
+                view.currentItem.cardItem.forceActiveFocus(Qt.TabFocusReason)
+        })
+        return true
+    }
+
+    Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_Up) {
+            if (!root.focusControllerRow(root.controllerIndex - 1))
+                root.focusChain(false)
+            event.accepted = true
+        } else if (event.key === Qt.Key_Down) {
+            if (!root.focusControllerRow(root.controllerIndex + 1))
+                root.focusChain(true)
+            event.accepted = true
+        } else if (event.key === Qt.Key_Right) {
+            if (root.hasAddons && !root.expanded)
+                root.expansionToggled(true)
+            else
+                root.focusChain(true)
+            event.accepted = true
+        } else if (event.key === Qt.Key_Left) {
+            if (root.hasAddons && root.expanded)
+                root.expansionToggled(false)
+            else
+                root.focusChain(false)
+            event.accepted = true
+        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+            const entryId = root.group.entryId ?? ""
+            if (entryId.length)
+                root.openDetails(entryId)
+            event.accepted = true
+        }
+    }
+
+    onActiveFocusChanged: {
+        if (activeFocus && root.controllerView && root.controllerIndex >= 0) {
+            root.controllerView.currentIndex = root.controllerIndex
+            root.controllerView.positionViewAtIndex(root.controllerIndex, ListView.Contain)
+        }
+    }
 
     function jobIsActive(job) {
         if (!job || !job.status)
@@ -255,6 +314,15 @@ MD.ElevationRectangle {
                 }
             }
         }
+    }
 
+    Rectangle {
+        anchors.fill: parent
+        z: 100
+        visible: root.activeFocus
+        color: "transparent"
+        radius: root.radius
+        border.width: 2
+        border.color: MD.Token.color.primary
     }
 }
