@@ -34,8 +34,6 @@ MD.Pane {
     function focusPageContent() {
         let next = root.nextItemInFocusChain(true)
         let guard = 0
-        // The settings icon and other rail children are in the tab chain. Skip all
-        // of them so Right/A from the rail actually enters the active page.
         while (next && root.isInsideRail(next) && guard++ < 64)
             next = next.nextItemInFocusChain(true)
         if (next && next !== root)
@@ -59,7 +57,20 @@ MD.Pane {
         if (count === 0)
             return
 
-        if (event.key === Qt.Key_Down) {
+        const backwardsTab = event.key === Qt.Key_Backtab
+                             || (event.key === Qt.Key_Tab
+                                 && (event.modifiers & Qt.ShiftModifier))
+        const forwardsTab = event.key === Qt.Key_Tab && !backwardsTab
+
+        if (forwardsTab) {
+            // Steam Deck directions are translated to Tab. While focus is on
+            // the rail, keep that traversal inside the rail until A is pressed.
+            root.keyboardIndex = Math.min(count, root.keyboardIndex + 1)
+            event.accepted = true
+        } else if (backwardsTab) {
+            root.keyboardIndex = Math.max(0, root.keyboardIndex - 1)
+            event.accepted = true
+        } else if (event.key === Qt.Key_Down) {
             root.keyboardIndex = Math.min(count, root.keyboardIndex + 1)
             event.accepted = true
         } else if (event.key === Qt.Key_Up) {
@@ -69,7 +80,6 @@ MD.Pane {
             root.activateKeyboardItem(true)
             event.accepted = true
         } else if (event.key === Qt.Key_Left) {
-            // A vertical rail never changes section on Left/Right.
             event.accepted = true
         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
                    || event.key === Qt.Key_Space || event.key === Qt.Key_Select) {
@@ -82,8 +92,6 @@ MD.Pane {
     }
 
     onCurrentIndexChanged: {
-        // Do not drag controller focus away from the Settings slot while the rail
-        // itself still owns focus.
         if (!root.activeFocus || root.keyboardIndex < (root.model ? root.model.length : 0))
             keyboardIndex = currentIndex
     }
