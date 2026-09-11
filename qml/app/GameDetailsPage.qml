@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import QtQuick.Window
 
 import Arachnel.Core 1.0
 import Qcm.Material as MD
@@ -96,7 +97,6 @@ Item {
     }
     readonly property bool downloadFailed: downloadJob.status === "failed"
         || downloadJob.status === "cancelled"
-    // Install-phase failure only (completed download with bad install, not a network drop).
     readonly property bool installFailed: !root.downloadFailed
         && !!(downloadJob.installFailed)
     readonly property bool isInstalling: downloadJob.status === "installing"
@@ -193,8 +193,6 @@ Item {
         function onJobsChanged() {
             const prevStatus = root.downloadJob.status || ""
             root.refreshDownloadJob()
-            // Progress ticks used to bump detailsRevision every time, which rebuilt
-            // the screenshot strip and made tiles vanish mid-download.
             if ((root.downloadJob.status || "") !== prevStatus)
                 root.detailsRevision++
         }
@@ -260,7 +258,6 @@ Item {
 
     readonly property string sourceLabel: {
         const _rev = root.detailsRevision
-        // Merged catalog entry available from several plugins - don't pin one name.
         if (root.installSourceCount > 1)
             return qsTr("%n source(s)", "", root.installSourceCount)
         const sid = info.sourceId ?? ""
@@ -278,6 +275,28 @@ Item {
     signal openSteamidraTrust()
     signal openSourcesRequested()
     signal protonRequired()
+
+    function moveControllerFocus(forward) {
+        const window = root.Window.window
+        const current = window ? window.activeFocusItem : null
+        const source = current && current.nextItemInFocusChain ? current : root
+        const next = source.nextItemInFocusChain(forward)
+        if (next && next !== source)
+            next.forceActiveFocus(Qt.TabFocusReason)
+    }
+
+    Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Cancel) {
+            root.backRequested()
+            event.accepted = true
+        } else if (event.key === Qt.Key_Right || event.key === Qt.Key_Down) {
+            root.moveControllerFocus(true)
+            event.accepted = true
+        } else if (event.key === Qt.Key_Left || event.key === Qt.Key_Up) {
+            root.moveControllerFocus(false)
+            event.accepted = true
+        }
+    }
 
     /** Catalog entry id for the chosen install source (may differ from showcase gameId). */
     property string pendingInstallEntryId: ""
@@ -334,7 +353,6 @@ Item {
             proceedWithAddons()
             return
         }
-        // Open picker immediately with loading - don't freeze the details page.
         root.openAddonPicker(installId, title)
     }
 
@@ -374,7 +392,6 @@ Item {
         Core.removeEntry(root.gameId, true)
         root.backRequested()
     }
-
 
     GameDetailsContent {
         anchors.fill: parent
