@@ -122,6 +122,15 @@ Item {
             next.forceActiveFocus(Qt.TabFocusReason)
     }
 
+    function focusSelectedRowActions() {
+        const row = jobsList.currentItem
+        const card = row ? row.cardItem : null
+        if (!card)
+            return
+        card.forceActiveFocus(Qt.TabFocusReason)
+        Qt.callLater(function () { card.focusChain(true) })
+    }
+
     // Download rows handle their own D-pad navigation. If focus is on a normal
     // action button (for example Clear finished / pause / cancel), keep the D-pad
     // moving through the focus chain rather than stranding controller users.
@@ -256,8 +265,12 @@ Item {
                     event.accepted = true
                 } else if (event.key === Qt.Key_Right) {
                     const group = root.selectedGroup()
-                    if (group && (group.entryId ?? "").length)
-                        root.setGroupExpanded(group.entryId, true)
+                    const entryId = group ? (group.entryId ?? "") : ""
+                    const canExpand = group && !!group.hasAddons
+                    if (canExpand && entryId.length && !root.isGroupExpanded(entryId))
+                        root.setGroupExpanded(entryId, true)
+                    else
+                        root.focusSelectedRowActions()
                     event.accepted = true
                 } else if (event.key === Qt.Key_Left) {
                     const group = root.selectedGroup()
