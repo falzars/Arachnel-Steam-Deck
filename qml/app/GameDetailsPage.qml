@@ -310,36 +310,6 @@ Item {
         return root.onLinux && Core.needsProtonOnPlatform() && !Core.protonReady
     }
 
-    function steamInstallAppId() {
-        const direct = (root.info.steamAppId ?? "").toString().trim()
-        if (/^\d+$/.test(direct))
-            return direct
-        const storeUrl = (root.info.steamStoreUrl ?? "").toString()
-        const match = /\/app\/(\d+)/i.exec(storeUrl)
-        return match ? match[1] : ""
-    }
-
-    function installViaSteamFallback() {
-        const appId = root.steamInstallAppId()
-        if (!appId.length)
-            return false
-        Core.openExternalUrl("steam://install/" + appId)
-        return true
-    }
-
-    function selectedOfferStillAvailable(installId, sourceId) {
-        const offers = Core.installOffersForEntry(root.gameId)
-        if (!offers || !offers.length)
-            return false
-        for (let i = 0; i < offers.length; ++i) {
-            const offerSource = (offers[i].sourceId || "").toString()
-            const offerEntry = (offers[i].entryId || root.gameId).toString()
-            if (offerSource === sourceId && offerEntry === installId)
-                return true
-        }
-        return false
-    }
-
     function proceedToInstall(selectedAddonIds) {
         if (root.needsProtonCheck()) {
             root.protonRequired()
@@ -350,22 +320,12 @@ Item {
         const details = Core.entryDetails(installId)
         const title = (details.title || root.info.title || "")
         const sourceId = root.pendingInstallSourceId || ""
-        if (Core.needsInstallLocationChoice()) {
+        if (Core.needsInstallLocationChoice())
             root.openInstallPicker(installId, title, ids, sourceId)
-            return
-        }
-        if (sourceId.length) {
-            if (!root.selectedOfferStillAvailable(installId, sourceId)
-                    && root.installViaSteamFallback())
-                return
+        else if (sourceId.length)
             Core.installCatalogEntryFromSource(root.gameId, sourceId, "", ids)
-            return
-        }
-        const liveDetails = Core.entryDetails(installId)
-        if (!((liveDetails.title || "").toString().trim().length)
-                && root.installViaSteamFallback())
-            return
-        Core.installCatalogEntry(installId, "", ids)
+        else
+            Core.installCatalogEntry(installId, "", ids)
     }
 
     function continueAfterSourceChosen() {
@@ -404,10 +364,6 @@ Item {
         root.pendingInstallEntryId = ""
         root.pendingInstallSourceId = ""
         const offers = Core.installOffersForEntry(root.gameId)
-        if (!offers || !offers.length) {
-            if (root.installViaSteamFallback())
-                return
-        }
         if (offers.length > 1) {
             root.openSourcePicker(root.gameId, root.info.title || "")
             return
