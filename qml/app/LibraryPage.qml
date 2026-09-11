@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Window
 
 import Arachnel.Core 1.0
 import Qcm.Material as MD
@@ -90,6 +91,27 @@ Item {
     signal openSettings()
     signal addSourceRequested()
 
+    function moveControllerFocus(forward) {
+        const window = root.Window.window
+        const current = window ? window.activeFocusItem : null
+        const source = current && current.nextItemInFocusChain ? current : root
+        const next = source.nextItemInFocusChain(forward)
+        if (next && next !== source)
+            next.forceActiveFocus(Qt.TabFocusReason)
+    }
+
+    // Views/cards consume directional keys themselves. This fallback makes ordinary
+    // Material buttons/chips behave like a console menu without changing their design.
+    Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_Right || event.key === Qt.Key_Down) {
+            root.moveControllerFocus(true)
+            event.accepted = true
+        } else if (event.key === Qt.Key_Left || event.key === Qt.Key_Up) {
+            root.moveControllerFocus(false)
+            event.accepted = true
+        }
+    }
+
     Component.onCompleted: {
         Core.prefetchCatalogCounts()
     }
@@ -103,7 +125,6 @@ Item {
         target: Core.library
         function onLibraryChanged() { root.libraryRevision++ }
     }
-
 
     LibraryEmptyState {
         anchors.fill: parent
