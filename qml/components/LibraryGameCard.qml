@@ -7,6 +7,7 @@ import Qcm.Material as MD
 Item {
     id: root
 
+    required property int index
     required property string gameId
     required property string title
     required property string coverUrl
@@ -80,6 +81,76 @@ Item {
     signal openDetails(string gameId)
     signal requestUpdate(string gameId)
 
+    activeFocusOnTab: true
+
+    function focusIndex(nextIndex) {
+        const view = GridView.view
+        if (!view || nextIndex < 0 || nextIndex >= view.count)
+            return false
+        view.currentIndex = nextIndex
+        view.positionViewAtIndex(nextIndex, GridView.Contain)
+        Qt.callLater(function () {
+            if (view.currentItem)
+                view.currentItem.forceActiveFocus(Qt.TabFocusReason)
+        })
+        return true
+    }
+
+    function focusChain(forward) {
+        const item = root.nextItemInFocusChain(forward)
+        if (item && item !== root)
+            item.forceActiveFocus(Qt.TabFocusReason)
+    }
+
+    Keys.onPressed: function(event) {
+        const view = GridView.view
+        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+            root.openDetails(root.gameId)
+            event.accepted = true
+            return
+        }
+        if (!view)
+            return
+
+        const columns = Math.max(1, Math.floor(view.width / Math.max(1, view.cellWidth)))
+        const col = root.index % columns
+        let target = -1
+        if (event.key === Qt.Key_Right) {
+            if (col < columns - 1 && root.index + 1 < view.count)
+                target = root.index + 1
+            else
+                root.focusChain(true)
+        } else if (event.key === Qt.Key_Left) {
+            if (col > 0)
+                target = root.index - 1
+            else
+                root.focusChain(false)
+        } else if (event.key === Qt.Key_Down) {
+            if (root.index + columns < view.count)
+                target = root.index + columns
+            else
+                root.focusChain(true)
+        } else if (event.key === Qt.Key_Up) {
+            if (root.index - columns >= 0)
+                target = root.index - columns
+            else
+                root.focusChain(false)
+        } else {
+            return
+        }
+
+        if (target >= 0)
+            root.focusIndex(target)
+        event.accepted = true
+    }
+
+    onActiveFocusChanged: {
+        if (activeFocus && GridView.view) {
+            GridView.view.currentIndex = root.index
+            GridView.view.positionViewAtIndex(root.index, GridView.Contain)
+        }
+    }
+
     Connections {
         target: Core
         function onRunningGameChanged() { /* refresh isRunning */ }
@@ -106,7 +177,10 @@ Item {
                 fallbackText: root.title.charAt(0)
                 cornerRadius: MD.Token.shape.corner.extra_large
                 fillProgress: root.posterFillProgress
-                onClicked: root.openDetails(root.gameId)
+                onClicked: {
+                    root.forceActiveFocus(Qt.MouseFocusReason)
+                    root.openDetails(root.gameId)
+                }
             }
 
             MD.AssistChip {
@@ -187,5 +261,16 @@ Item {
             typescale: MD.Token.typescale.label_medium
             elide: Text.ElideRight
         }
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        anchors.rightMargin: MD.Token.spacing.small
+        radius: MD.Token.shape.corner.extra_large
+        color: "transparent"
+        border.width: root.activeFocus ? 2 : 0
+        border.color: MD.Token.color.primary
+        visible: root.activeFocus
+        z: 50
     }
 }
