@@ -21,6 +21,27 @@ MD.Pane {
     activeFocusOnTab: true
     focus: true
 
+    function isInsideRail(item) {
+        let current = item
+        while (current) {
+            if (current === root)
+                return true
+            current = current.parent
+        }
+        return false
+    }
+
+    function focusPageContent() {
+        let next = root.nextItemInFocusChain(true)
+        let guard = 0
+        // The settings icon and other rail children are in the tab chain. Skip all
+        // of them so Right/A from the rail actually enters the active page.
+        while (next && root.isInsideRail(next) && guard++ < 64)
+            next = next.nextItemInFocusChain(true)
+        if (next && next !== root)
+            next.forceActiveFocus(Qt.TabFocusReason)
+    }
+
     function activateKeyboardItem(enterContent) {
         const count = root.model ? root.model.length : 0
         if (root.keyboardIndex >= count) {
@@ -30,13 +51,7 @@ MD.Pane {
         root.activated(root.keyboardIndex)
         if (!enterContent)
             return
-        // Keep the rail as a reliable controller home, but let Right / A move to
-        // the next focusable control in the active page after the page switches.
-        Qt.callLater(function () {
-            const next = root.nextItemInFocusChain(true)
-            if (next && next !== root)
-                next.forceActiveFocus(Qt.TabFocusReason)
-        })
+        Qt.callLater(root.focusPageContent)
     }
 
     Keys.onPressed: function(event) {
@@ -54,10 +69,10 @@ MD.Pane {
             root.activateKeyboardItem(true)
             event.accepted = true
         } else if (event.key === Qt.Key_Left) {
-            // A vertical rail never changes section on Left/Right. Keeping Left
-            // here avoids the old surprising page-selection behaviour.
+            // A vertical rail never changes section on Left/Right.
             event.accepted = true
-        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                   || event.key === Qt.Key_Space || event.key === Qt.Key_Select) {
             root.activateKeyboardItem(true)
             event.accepted = true
         } else if (event.key === Qt.Key_S) {
