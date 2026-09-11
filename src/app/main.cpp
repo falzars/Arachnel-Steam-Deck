@@ -1,5 +1,6 @@
 #include <QCoreApplication>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QEvent>
 #include <QGuiApplication>
 #include <QIcon>
@@ -24,6 +25,7 @@
 #if defined(Q_OS_LINUX)
 #include <fcntl.h>
 #include <linux/joystick.h>
+#include <sys/ioctl.h>
 #include <unistd.h>
 #endif
 
@@ -46,6 +48,8 @@ public:
     explicit LinuxGamepadKeyBridge(QObject* parent = nullptr)
         : QObject(parent)
     {
+        m_dispatchClock.start();
+
         m_pollTimer.setInterval(8);
         QObject::connect(&m_pollTimer, &QTimer::timeout, this, [this]() { pollController(); });
         m_pollTimer.start();
@@ -55,13 +59,13 @@ public:
         m_rescanTimer.start();
 
         m_repeatDelay.setSingleShot(true);
-        m_repeatDelay.setInterval(320);
+        m_repeatDelay.setInterval(340);
         QObject::connect(&m_repeatDelay, &QTimer::timeout, this, [this]() {
             if (m_repeatKey != 0)
                 m_repeatTimer.start();
         });
 
-        m_repeatTimer.setInterval(90);
+        m_repeatTimer.setInterval(110);
         QObject::connect(&m_repeatTimer, &QTimer::timeout, this, [this]() {
             if (m_repeatKey != 0)
                 dispatchKey(m_repeatKey);
@@ -78,7 +82,7 @@ public:
 private:
     static int directionForValue(qint16 value)
     {
-        constexpr int deadZone = 16000;
+        constexpr int deadZone = 15500;
         if (value > deadZone)
             return 1;
         if (value < -deadZone)
@@ -101,10 +105,16 @@ private:
         if (!target)
             return;
 
-        QCoreApplication::postEvent(
-            target, new QKeyEvent(QEvent::KeyPress, key, modifiers));
-        QCoreApplication::postEvent(
-            target, new QKeyEvent(QEvent::KeyRelease, key, modifiers));
+        const qint64 now = m_dispatchClock.elapsed();
+        if (key == m_lastDispatchedKey && now - m_lastDispatchMs < 55)
+            return;
+        m_lastDispatchedKey = key;
+        m_lastDispatchMs = now;
+
+        QKeyEvent press(QEvent::KeyPress, key, modifiers);
+        QCoreApplication::sendEvent(target, &press);
+        QKeyEvent release(QEvent::KeyRelease, key, modifiers);
+        QCoreApplication::sendEvent(target, &release);
     }
 
     void beginRepeat(int key)
@@ -131,10 +141,14 @@ private:
     {
         if (direction == 0)
             return 0;
+
+        // Controller directions use private function keys. Main.qml consumes
+        // them globally and moves focus exactly once, instead of letting several
+        // page-level arrow handlers react to the same physical press.
         if (axis == 0 || axis == 6)
-            return direction < 0 ? Qt::Key_Left : Qt::Key_Right;
+            return direction < 0 ? Qt::Key_F15 : Qt::Key_F16;
         if (axis == 1 || axis == 7)
-            return direction < 0 ? Qt::Key_Up : Qt::Key_Down;
+            return direction < 0 ? Qt::Key_F13 : Qt::Key_F14;
         return 0;
     }
 
@@ -165,23 +179,18 @@ private:
         if (!pressed)
             return;
 
-        // Steam Input's virtual Xbox layout and the Deck's Linux joystick layout
-        // both use the standard face-button order here.
         switch (button) {
-        case 0: // A
+        case 0: // A: activate focused control
             dispatchKey(Qt::Key_Return);
             break;
-        case 1: // B
+        case 1: // B: back / close
             dispatchKey(Qt::Key_Escape);
             break;
-        case 2: // X
-            dispatchKey(Qt::Key_Space);
+        case 4: // L1: previous focus
+            dispatchKey(Qt::Key_F19);
             break;
-        case 4: // L1
-            dispatchKey(Qt::Key_Backtab, Qt::ShiftModifier);
-            break;
-        case 5: // R1
-            dispatchKey(Qt::Key_Tab);
+        case 5: // R1: next focus
+            dispatchKey(Qt::Key_F20);
             break;
         case 6: // View / Back
             dispatchKey(Qt::Key_Escape);
@@ -203,10 +212,37 @@ private:
             handleButton(event.number, event.value != 0);
     }
 
+    static int deviceScore(int fd, const QByteArray& name)
+    {
+        unsigned char axes = 0;
+        unsigned char buttons = 0;
+        ::ioctl(fd, JSIOCGAXES, &axes);
+        ::ioctl(fd, JSIOCGBUTTONS, &buttons);
+
+        const QByteArray lower = name.toLower();
+        int score = 0;
+        if (lower.contains("steam deck") || lower.contains("steam virtual"))
+            score += 300;
+        else if (lower.contains("steam"))
+            score += 220;
+        if (lower.contains("xbox") || lower.contains("gamepad") || lower.contains("controller"))
+            score += 120;
+        if (axes >= 4)
+            score += 30;
+        if (buttons >= 8)
+            score += 30;
+        return score;
+    }
+
     void tryOpenController()
     {
         if (m_fd >= 0)
             return;
+
+        int bestFd = -1;
+        int bestScore = -1;
+        QByteArray bestPath;
+        QByteArray bestName;
 
         for (int i = 0; i < 8; ++i) {
             const QByteArray path = QByteArrayLiteral("/dev/input/js") + QByteArray::number(i);
@@ -214,12 +250,32 @@ private:
             if (fd < 0)
                 continue;
 
-            m_fd = fd;
-            m_axisDirection.fill(0);
-            std::fprintf(stderr, "Arachnel: controller input active on %s\n", path.constData());
-            std::fflush(stderr);
-            return;
+            char nameBuffer[128]{};
+            QByteArray name;
+            if (::ioctl(fd, JSIOCGNAME(sizeof(nameBuffer)), nameBuffer) >= 0)
+                name = QByteArray(nameBuffer);
+
+            const int score = deviceScore(fd, name);
+            if (score > bestScore) {
+                if (bestFd >= 0)
+                    ::close(bestFd);
+                bestFd = fd;
+                bestScore = score;
+                bestPath = path;
+                bestName = name;
+            } else {
+                ::close(fd);
+            }
         }
+
+        if (bestFd < 0)
+            return;
+
+        m_fd = bestFd;
+        m_axisDirection.fill(0);
+        std::fprintf(stderr, "Arachnel: controller input active on %s (%s)\n",
+                     bestPath.constData(), bestName.isEmpty() ? "unknown" : bestName.constData());
+        std::fflush(stderr);
     }
 
     void closeController()
@@ -261,6 +317,9 @@ private:
     int m_fd = -1;
     std::array<int, 8> m_axisDirection{};
     int m_repeatKey = 0;
+    int m_lastDispatchedKey = 0;
+    qint64 m_lastDispatchMs = -1000;
+    QElapsedTimer m_dispatchClock;
     QTimer m_pollTimer;
     QTimer m_rescanTimer;
     QTimer m_repeatDelay;
@@ -276,6 +335,11 @@ void configureSteamDeckPlatform()
     const bool inGamescope = !qgetenv("GAMESCOPE_WAYLAND_DISPLAY").isEmpty()
         || !qgetenv("SteamGamepadUI").isEmpty()
         || desktop.contains("gamescope");
+
+    // Make the QML/Core gaming-mode flag reliable even when Gamescope does not
+    // expose XDG_CURRENT_DESKTOP exactly as "gamescope".
+    if (inGamescope && !qEnvironmentVariableIsSet("ARACHNEL_GAMING_MODE"))
+        qputenv("ARACHNEL_GAMING_MODE", QByteArrayLiteral("1"));
 
     // The packaged AppImage defaults to xcb. Inside Steam Gaming Mode that
     // unnecessarily pins Qt to XWayland and can leave the launcher with a dead
