@@ -105,6 +105,9 @@ void JobOrchestrator::cancelJob(const QString& jobId)
     if (job.kind == JobKind::Move)
         return;
 
+    const bool backendWasActive = isJobRunning(job.status)
+                                  || job.status == QStringLiteral("starting");
+
     // Publish the terminal state before asking the backend to abort. Network/session
     // backends are allowed to emit a final progress/failure callback synchronously from
     // cancel(); those callbacks must see "cancelled" and become harmless no-ops.
@@ -120,12 +123,11 @@ void JobOrchestrator::cancelJob(const QString& jobId)
     if (job.pluginDownload) {
         // CoreController/PluginHost owns the actual plugin cancellation.
     } else if (job.httpDownload) {
-        m_http->cancel(jobId);
-    } else if (isJobRunning(job.status) || job.status == QStringLiteral("starting")) {
+        if (backendWasActive)
+            m_http->cancel(jobId);
+    } else if (backendWasActive) {
         m_torrent->cancel(jobId, true);
     } else {
-        // The state was changed above, so use the original job state to decide whether
-        // there is an active backend session. Non-running jobs only need resume cleanup.
         m_torrent->removeResumeFile(jobId);
     }
 }
