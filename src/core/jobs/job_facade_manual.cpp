@@ -203,10 +203,10 @@ QString CoreController::browseInstallFolder(const QString& startPath)
 
 void CoreController::offerManualInstallForJob(const JobEntry& job)
 {
-    openJobDownloadFolder(job.id);
+    Q_UNUSED(job);
     showNotice(QCoreApplication::translate(
         "Core",
-        "Automatic install is unavailable. Run setup.exe from the download folder, then use the folder button to point to the game."));
+        "Automatic install could not continue. Retry the installation from Arachnel."));
 }
 
 void CoreController::confirmManualInstall(const QString& jobId)
