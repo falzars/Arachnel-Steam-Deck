@@ -29,6 +29,113 @@ Item {
     signal openDetails(string entryId)
 
     clip: true
+    activeFocusOnTab: true
+
+    readonly property var controllerView: GridView.view ? GridView.view
+                                                        : (ListView.view ? ListView.view : null)
+
+    function focusChain(forward) {
+        const item = root.nextItemInFocusChain(forward)
+        if (item && item !== root)
+            item.forceActiveFocus(Qt.TabFocusReason)
+    }
+
+    function focusControllerIndex(nextIndex) {
+        const view = root.controllerView
+        if (!view || nextIndex < 0 || nextIndex >= view.count)
+            return false
+        view.currentIndex = nextIndex
+        const mode = GridView.view ? GridView.Contain : ListView.Contain
+        view.positionViewAtIndex(nextIndex, mode)
+        Qt.callLater(function () {
+            if (view.currentItem)
+                view.currentItem.forceActiveFocus(Qt.TabFocusReason)
+        })
+        return true
+    }
+
+    Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+            root.openDetails(root.entryId)
+            event.accepted = true
+            return
+        }
+
+        const view = root.controllerView
+        if (!view)
+            return
+
+        let target = -1
+        if (GridView.view) {
+            const columns = Math.max(1, Math.floor(view.width / Math.max(1, view.cellWidth)))
+            const col = root.index % columns
+            if (event.key === Qt.Key_Right) {
+                if (col < columns - 1 && root.index + 1 < view.count)
+                    target = root.index + 1
+                else
+                    root.focusChain(true)
+            } else if (event.key === Qt.Key_Left) {
+                if (col > 0)
+                    target = root.index - 1
+                else
+                    root.focusChain(false)
+            } else if (event.key === Qt.Key_Down) {
+                if (root.index + columns < view.count)
+                    target = root.index + columns
+                else
+                    root.focusChain(true)
+            } else if (event.key === Qt.Key_Up) {
+                if (root.index - columns >= 0)
+                    target = root.index - columns
+                else
+                    root.focusChain(false)
+            } else {
+                return
+            }
+        } else {
+            const horizontal = view.orientation === ListView.Horizontal
+            if (horizontal && event.key === Qt.Key_Right) {
+                if (root.index + 1 < view.count)
+                    target = root.index + 1
+                else
+                    root.focusChain(true)
+            } else if (horizontal && event.key === Qt.Key_Left) {
+                if (root.index > 0)
+                    target = root.index - 1
+                else
+                    root.focusChain(false)
+            } else if (!horizontal && event.key === Qt.Key_Down) {
+                if (root.index + 1 < view.count)
+                    target = root.index + 1
+                else
+                    root.focusChain(true)
+            } else if (!horizontal && event.key === Qt.Key_Up) {
+                if (root.index > 0)
+                    target = root.index - 1
+                else
+                    root.focusChain(false)
+            } else if (event.key === Qt.Key_Right) {
+                root.focusChain(true)
+            } else if (event.key === Qt.Key_Left) {
+                root.focusChain(false)
+            } else {
+                return
+            }
+        }
+
+        if (target >= 0)
+            root.focusControllerIndex(target)
+        event.accepted = true
+    }
+
+    onActiveFocusChanged: {
+        if (activeFocus && root.controllerView) {
+            root.controllerView.currentIndex = root.index
+            const mode = GridView.view ? GridView.Contain : ListView.Contain
+            root.controllerView.positionViewAtIndex(root.index, mode)
+            root.dismissPeek()
+        }
+    }
 
     readonly property var shotUrls: {
         if (!root.peekArmed && !root.peekWaiting)
@@ -503,5 +610,15 @@ Item {
         cursorShape: Qt.PointingHandCursor
         onClicked: root.openDetails(root.entryId)
         z: -1
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        z: 80
+        visible: root.activeFocus
+        color: "transparent"
+        radius: MD.Token.shape.corner.large
+        border.width: 2
+        border.color: MD.Token.color.primary
     }
 }
