@@ -20,7 +20,7 @@ Item {
 
     readonly property int scrubberWidth: catalogNavigator.visible ? catalogNavigator.width : 0
     readonly property real compactBarHeight: 56
-    readonly property bool catalogBound: page.catalogModelReady && page.enabled
+    readonly property bool catalogBound: page.catalogModelReady && (page.browseOnly || page.enabled)
                                          && !page.discoveryMode && !Core.catalog.bulkUpdating
 
     // Discrete chrome mode with hysteresis - avoids per-pixel bounce while flicking.
