@@ -48,6 +48,22 @@ Item {
         return page.listViewMode ? list : grid
     }
 
+    function focusOutside(view, forward) {
+        if (!view)
+            return
+        const item = view.nextItemInFocusChain(forward)
+        if (item && item !== view)
+            item.forceActiveFocus(Qt.TabFocusReason)
+    }
+
+    function activateCurrent(view) {
+        if (!view || !view.currentItem)
+            return
+        const entryId = view.currentItem.entryId ?? ""
+        if (entryId.length)
+            page.openGame(entryId)
+    }
+
     function syncHeaderHeight() {
         const header = activeView().headerItem
         if (header && header.height > 40)
@@ -240,6 +256,38 @@ Item {
         boundsBehavior: Flickable.StopAtBounds
         pixelAligned: true
         interactive: true
+        activeFocusOnTab: true
+        keyNavigationEnabled: true
+        keyNavigationWraps: false
+        currentIndex: count > 0 ? 0 : -1
+
+        Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                    || event.key === Qt.Key_Space || event.key === Qt.Key_Select) {
+                root.activateCurrent(grid)
+                event.accepted = true
+                return
+            }
+
+            const columns = Math.max(1, Math.floor(grid.width / Math.max(1, grid.cellWidth)))
+            const col = grid.currentIndex >= 0 ? grid.currentIndex % columns : 0
+            if (event.key === Qt.Key_Left && grid.currentIndex >= 0 && col === 0) {
+                root.focusOutside(grid, false)
+                event.accepted = true
+            } else if (event.key === Qt.Key_Up && grid.currentIndex >= 0 && grid.currentIndex < columns) {
+                root.focusOutside(grid, false)
+                event.accepted = true
+            }
+        }
+
+        highlightFollowsCurrentItem: true
+        highlightMoveDuration: 80
+        highlight: Rectangle {
+            radius: MD.Token.shape.corner.large
+            color: "transparent"
+            border.width: grid.activeFocus ? 2 : 0
+            border.color: MD.Token.color.primary
+        }
 
         header: Column {
             width: grid.width
@@ -305,6 +353,33 @@ Item {
         reuseItems: true
         boundsBehavior: Flickable.StopAtBounds
         interactive: true
+        activeFocusOnTab: true
+        keyNavigationEnabled: true
+        keyNavigationWraps: false
+        currentIndex: count > 0 ? 0 : -1
+
+        Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                    || event.key === Qt.Key_Space || event.key === Qt.Key_Select) {
+                root.activateCurrent(list)
+                event.accepted = true
+            } else if (event.key === Qt.Key_Left) {
+                root.focusOutside(list, false)
+                event.accepted = true
+            } else if (event.key === Qt.Key_Up && list.currentIndex <= 0) {
+                root.focusOutside(list, false)
+                event.accepted = true
+            }
+        }
+
+        highlightFollowsCurrentItem: true
+        highlightMoveDuration: 80
+        highlight: Rectangle {
+            radius: MD.Token.shape.corner.medium
+            color: "transparent"
+            border.width: list.activeFocus ? 2 : 0
+            border.color: MD.Token.color.primary
+        }
 
         header: Column {
             width: list.width
