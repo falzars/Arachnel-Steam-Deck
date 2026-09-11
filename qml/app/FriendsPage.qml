@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Window
 
 import Arachnel.Core 1.0
 import Qcm.Material as MD
@@ -21,6 +22,28 @@ Item {
         Core.acceptFriendInvite(digits)
         emptyAddPin.text = ""
         listAddPin.text = ""
+    }
+
+    function moveControllerFocus(forward) {
+        const window = root.Window.window
+        const current = window ? window.activeFocusItem : null
+        const source = current && current.nextItemInFocusChain ? current : root
+        const next = source.nextItemInFocusChain(forward)
+        if (next && next !== source)
+            next.forceActiveFocus(Qt.TabFocusReason)
+    }
+
+    // Let ordinary buttons, invite fields and friend actions behave like a console
+    // menu without changing the visual layout. Controls that consume arrows themselves
+    // keep their native behaviour; only unhandled keys bubble here.
+    Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_Right || event.key === Qt.Key_Down) {
+            root.moveControllerFocus(true)
+            event.accepted = true
+        } else if (event.key === Qt.Key_Left || event.key === Qt.Key_Up) {
+            root.moveControllerFocus(false)
+            event.accepted = true
+        }
     }
 
     Item {
