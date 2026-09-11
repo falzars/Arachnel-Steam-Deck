@@ -9,6 +9,7 @@ MD.Pane {
     property int currentIndex: 0
     property var model: []
     property int downloadBadge: 0
+    // model.length is a real final controller slot: Settings.
     property int keyboardIndex: currentIndex
 
     signal activated(int index)
@@ -20,17 +21,44 @@ MD.Pane {
     activeFocusOnTab: true
     focus: true
 
-    Keys.onPressed: function(event) {
-        if (!root.model || root.model.length === 0)
+    function activateKeyboardItem(enterContent) {
+        const count = root.model ? root.model.length : 0
+        if (root.keyboardIndex >= count) {
+            root.settingsRequested()
             return
-        if (event.key === Qt.Key_Down || event.key === Qt.Key_Right) {
-            root.keyboardIndex = Math.min(root.model.length - 1, root.keyboardIndex + 1)
+        }
+        root.activated(root.keyboardIndex)
+        if (!enterContent)
+            return
+        // Keep the rail as a reliable controller home, but let Right / A move to
+        // the next focusable control in the active page after the page switches.
+        Qt.callLater(function () {
+            const next = root.nextItemInFocusChain(true)
+            if (next && next !== root)
+                next.forceActiveFocus(Qt.TabFocusReason)
+        })
+    }
+
+    Keys.onPressed: function(event) {
+        const count = root.model ? root.model.length : 0
+        if (count === 0)
+            return
+
+        if (event.key === Qt.Key_Down) {
+            root.keyboardIndex = Math.min(count, root.keyboardIndex + 1)
             event.accepted = true
-        } else if (event.key === Qt.Key_Up || event.key === Qt.Key_Left) {
+        } else if (event.key === Qt.Key_Up) {
             root.keyboardIndex = Math.max(0, root.keyboardIndex - 1)
             event.accepted = true
+        } else if (event.key === Qt.Key_Right) {
+            root.activateKeyboardItem(true)
+            event.accepted = true
+        } else if (event.key === Qt.Key_Left) {
+            // A vertical rail never changes section on Left/Right. Keeping Left
+            // here avoids the old surprising page-selection behaviour.
+            event.accepted = true
         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
-            root.activated(root.keyboardIndex)
+            root.activateKeyboardItem(true)
             event.accepted = true
         } else if (event.key === Qt.Key_S) {
             root.settingsRequested()
@@ -38,7 +66,17 @@ MD.Pane {
         }
     }
 
-    onCurrentIndexChanged: keyboardIndex = currentIndex
+    onCurrentIndexChanged: {
+        // Do not drag controller focus away from the Settings slot while the rail
+        // itself still owns focus.
+        if (!root.activeFocus || root.keyboardIndex < (root.model ? root.model.length : 0))
+            keyboardIndex = currentIndex
+    }
+
+    onActiveFocusChanged: {
+        if (activeFocus && keyboardIndex < 0)
+            keyboardIndex = currentIndex
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -177,11 +215,29 @@ MD.Pane {
 
         Item { Layout.fillHeight: true }
 
-        MD.IconButton {
+        Item {
             Layout.alignment: Qt.AlignHCenter
-            mdState.type: MD.Enum.IBtStandard
-            icon.name: MD.Token.icon.settings
-            onClicked: root.settingsRequested()
+            Layout.preferredWidth: 48
+            Layout.preferredHeight: 48
+
+            Rectangle {
+                anchors.fill: parent
+                radius: width / 2
+                color: "transparent"
+                border.width: root.activeFocus && root.keyboardIndex === (root.model ? root.model.length : 0) ? 2 : 0
+                border.color: MD.Token.color.primary
+            }
+
+            MD.IconButton {
+                anchors.centerIn: parent
+                mdState.type: MD.Enum.IBtStandard
+                icon.name: MD.Token.icon.settings
+                onClicked: {
+                    root.keyboardIndex = root.model ? root.model.length : 0
+                    root.forceActiveFocus()
+                    root.settingsRequested()
+                }
+            }
         }
     }
 }
