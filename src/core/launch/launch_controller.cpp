@@ -265,10 +265,12 @@ void LaunchController::clearRunning(bool allowOnlineFixFallback, bool suppressQu
 
     const bool userStopped = m_userStopped;
     const bool crashed = exitCodeLooksLikeCrash(exitCode) || textLooksLikeGameCrash(combinedLog);
-    // Exit 0 only counts as a user close after the game exe actually came up.
-    // SteamAPI_Init failure is also 0, with no window - that's a failed start.
-    const bool cleanQuit = !crashed
-        && (userStopped || (exitCodeLooksLikeCleanQuit(exitCode) && m_sawGameExecutable));
+    // Proton can reparent the Windows game away from the wrapper process. In that case
+    // ProcessTracker may only report an unknown exit code after the real game executable
+    // was already observed. Treat that as a normal user close unless diagnostics show a crash.
+    const bool observedGameQuit =
+        m_sawGameExecutable && (exitCode < 0 || exitCodeLooksLikeCleanQuit(exitCode));
+    const bool cleanQuit = !crashed && (userStopped || observedGameQuit);
 
     logLine(QCoreApplication::translate("Core", "Game process exited (code %1)")
                 .arg(formatProcessExitCode(exitCode)));
@@ -1077,5 +1079,4 @@ void LaunchController::stopRunningGame()
     ProcessTracker::isProcessRunning(m_processId, &exitCode);
     clearRunning(false, true, exitCode);
 }
-
 } // namespace arachnel::core
