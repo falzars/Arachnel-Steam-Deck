@@ -1,6 +1,7 @@
 #include "install_session_service.h"
 
 #include "install_analyzer.h"
+#include "install_heuristics.h"
 #include "job_model.h"
 #include "job_orchestrator.h"
 #include "job_status.h"
@@ -11,6 +12,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFileInfo>
 
 namespace arachnel::core {
 
@@ -62,6 +64,77 @@ void InstallSessionService::startPluginInstall(const CatalogEntry& entry, const 
     m_hooks.fillProtonInstallFields(
         ctx.entryId, m_settings->resolvedProtonId(QString(), *m_protonManager),
         &ctx.protonExecutable, &ctx.compatDataPath, &ctx.steamCompatClientPath);
+
+    // Generic portable-ready fast path. Some catalog/source plugins classify any *.ftp
+    // payload as an installer even when the complete game tree and its real executable are
+    // already present. Prefer what is actually on disk: when the core analyzer confidently
+    // finds a playable executable and no real setup program, register it as a local portable
+    // game instead of forcing an installer plugin.
+    //
+    // The library installPath intentionally points at an empty Arachnel-owned wrapper folder,
+    // while executableOverride points at the downloaded game executable. This keeps generic
+    // Proton launching available without asking source-specific launch/install hooks to mutate
+    // the downloaded payload.
+    const InstallAnalysis localAnalysis = analyzeDownloadPath(savePath);
+    if (localAnalysis.methodId == QStringLiteral("portable-ready")
+        && localAnalysis.confidence >= 90) {
+        const QString contentRoot = findDownloadContentRoot(savePath);
+        const QString executable = findGameExecutableInTree(contentRoot, entry.title);
+        if (!executable.isEmpty() && QFileInfo::exists(executable)) {
+            const QString wrapperPath =
+                QDir(m_settings->gameDirFor(libId, entry.id))
+                    .filePath(QStringLiteral(".arachnel-local-portable"));
+            if (QDir().mkpath(wrapperPath)) {
+                LibraryGame game;
+                if (existing)
+                    game = *existing;
+
+                game.id = entry.id;
+                game.title = entry.title;
+                game.coverUrl = entry.coverUrl;
+                game.version = entry.version;
+                game.description = entry.description;
+                game.genres = entry.genres;
+                game.sizeLabel = entry.sizeLabel;
+                game.uploadDate = entry.uploadDate;
+                game.sourceId = QStringLiteral("local-portable");
+                const QString originalSourceName = m_hooks.sourceNameForId(sourceId);
+                game.sourceName = originalSourceName.isEmpty()
+                                      ? QCoreApplication::translate("Core", "Local portable")
+                                      : originalSourceName;
+                game.installKind = InstallKind::PortableArchive;
+                game.installPath = wrapperPath;
+                game.executableOverride = executable;
+                game.downloadPath = savePath;
+                game.libraryId = libId;
+                game.hasUpdate = false;
+                if (!entry.magnetUris.isEmpty())
+                    game.magnetUri = entry.magnetUris.constFirst();
+                if (!entry.steamAppId.isEmpty())
+                    game.steamAppId = entry.steamAppId;
+                if (game.steamAppId.isEmpty())
+                    game.steamAppId = m_hooks.metadataSteamAppIdForTitle(entry.title);
+
+                m_libraryStore->upsertGame(game);
+                m_hooks.syncCatalogInstallKind(entry.id, InstallKind::PortableArchive);
+                m_hooks.syncLibrary();
+                m_hooks.recalculateLibraryUpdates();
+                m_hooks.gameCommitted(game);
+
+                if (!jobId.isEmpty()) {
+                    m_jobOrchestrator->setJobPhase(
+                        jobId, QStringLiteral("completed"),
+                        QCoreApplication::translate("Core", "Ready to play"));
+                }
+                clearSession(entry.id);
+                m_hooks.reconcileJobInstallState();
+                m_hooks.showNotice(
+                    QCoreApplication::translate("Core", "Ready to play: %1").arg(entry.title),
+                    true);
+                return;
+            }
+        }
+    }
 
     const InstallPlan plan = m_installAnalyzer ? m_installAnalyzer->resolveDownload(ctx) : InstallPlan{};
     if (!plan.installerPlugin) {
