@@ -40,6 +40,15 @@ QVariantMap jobToMap(const JobEntry& job)
     };
 }
 
+bool isNewerTerminalJob(const JobEntry* current, const JobEntry& candidate)
+{
+    if (!current)
+        return true;
+    if (candidate.createdAt != current->createdAt)
+        return candidate.createdAt > current->createdAt;
+    return candidate.completedAt >= current->completedAt;
+}
+
 } // namespace
 
 JobModel::JobModel(QObject* parent)
@@ -157,8 +166,7 @@ QVariantMap JobModel::jobForEntry(const QString& entryId) const
         return {};
 
     const JobEntry* activeMatch = nullptr;
-    const JobEntry* failedMatch = nullptr;
-    const JobEntry* completedMatch = nullptr;
+    const JobEntry* terminalMatch = nullptr;
     for (const auto& job : m_jobs) {
         if (job.entryId != entryId)
             continue;
@@ -166,18 +174,16 @@ QVariantMap JobModel::jobForEntry(const QString& entryId) const
             activeMatch = &job;
             break;
         }
-        if (job.status == QStringLiteral("failed"))
-            failedMatch = &job;
-        else if (job.status == QStringLiteral("completed"))
-            completedMatch = &job;
+        if ((job.status == QStringLiteral("failed") || job.status == QStringLiteral("completed"))
+            && isNewerTerminalJob(terminalMatch, job)) {
+            terminalMatch = &job;
+        }
     }
 
     if (activeMatch)
         return jobToMap(*activeMatch);
-    if (failedMatch)
-        return jobToMap(*failedMatch);
-    if (completedMatch)
-        return jobToMap(*completedMatch);
+    if (terminalMatch)
+        return jobToMap(*terminalMatch);
     return {};
 }
 
@@ -187,8 +193,7 @@ QVariantMap JobModel::jobForAddon(const QString& parentEntryId, const QString& a
         return {};
 
     const JobEntry* activeMatch = nullptr;
-    const JobEntry* failedMatch = nullptr;
-    const JobEntry* completedMatch = nullptr;
+    const JobEntry* terminalMatch = nullptr;
     for (const auto& job : m_jobs) {
         if (job.entryId != addonId || job.parentEntryId != parentEntryId)
             continue;
@@ -196,18 +201,16 @@ QVariantMap JobModel::jobForAddon(const QString& parentEntryId, const QString& a
             activeMatch = &job;
             break;
         }
-        if (job.status == QStringLiteral("failed"))
-            failedMatch = &job;
-        else if (job.status == QStringLiteral("completed"))
-            completedMatch = &job;
+        if ((job.status == QStringLiteral("failed") || job.status == QStringLiteral("completed"))
+            && isNewerTerminalJob(terminalMatch, job)) {
+            terminalMatch = &job;
+        }
     }
 
     if (activeMatch)
         return jobToMap(*activeMatch);
-    if (failedMatch)
-        return jobToMap(*failedMatch);
-    if (completedMatch)
-        return jobToMap(*completedMatch);
+    if (terminalMatch)
+        return jobToMap(*terminalMatch);
     return {};
 }
 
