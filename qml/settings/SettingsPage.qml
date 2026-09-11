@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import QtQuick.Window
 
 import Qcm.Material as MD
 
@@ -127,6 +128,28 @@ ColumnLayout {
         pendingSection = ""
         pendingCreateSource = false
         rebuildHub()
+    }
+
+    function moveControllerFocus(forward) {
+        const window = root.Window.window
+        const current = window ? window.activeFocusItem : null
+        const source = current && current.nextItemInFocusChain ? current : root
+        const next = source.nextItemInFocusChain(forward)
+        if (next && next !== source)
+            next.forceActiveFocus(Qt.TabFocusReason)
+    }
+
+    Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Cancel) {
+            root.goBack()
+            event.accepted = true
+        } else if (event.key === Qt.Key_Right || event.key === Qt.Key_Down) {
+            root.moveControllerFocus(true)
+            event.accepted = true
+        } else if (event.key === Qt.Key_Left || event.key === Qt.Key_Up) {
+            root.moveControllerFocus(false)
+            event.accepted = true
+        }
     }
 
     Component {
@@ -266,8 +289,6 @@ ColumnLayout {
         Layout.rightMargin: contentMargin
         Layout.bottomMargin: MD.Token.spacing.large
         Layout.topMargin: MD.Token.spacing.small
-        // Keep footer height stable — toggling visible on «Назад» resizes the
-        // BottomSheet (childrenRect) and makes page fades look jumpy.
         Layout.preferredHeight: 40
 
         MD.Button {
