@@ -65,16 +65,14 @@ void InstallSessionService::startPluginInstall(const CatalogEntry& entry, const 
         ctx.entryId, m_settings->resolvedProtonId(QString(), *m_protonManager),
         &ctx.protonExecutable, &ctx.compatDataPath, &ctx.steamCompatClientPath);
 
-    // Generic portable-ready fast path. Some catalog/source plugins classify any *.ftp
-    // payload as an installer even when the complete game tree and its real executable are
-    // already present. Prefer what is actually on disk: when the core analyzer confidently
-    // finds a playable executable and no real setup program, register it as a local portable
-    // game instead of forcing an installer plugin.
+    // Generic portable-ready fast path. Some source plugins classify a payload as an installer
+    // even when the complete game tree and its real executable are already present. Prefer what
+    // is actually on disk: when the core analyzer confidently finds a playable executable and no
+    // real setup program, register it as a local portable game instead of forcing an installer.
     //
-    // The library installPath intentionally points at an empty Arachnel-owned wrapper folder,
-    // while executableOverride points at the downloaded game executable. This keeps generic
-    // Proton launching available without asking source-specific launch/install hooks to mutate
-    // the downloaded payload.
+    // The library installPath intentionally points at an Arachnel-owned wrapper folder, while
+    // executableOverride points at the downloaded game executable. This keeps generic Proton
+    // launching available without asking source-specific hooks to mutate the downloaded payload.
     const InstallAnalysis localAnalysis = analyzeDownloadPath(savePath);
     if (localAnalysis.methodId == QStringLiteral("portable-ready")
         && localAnalysis.confidence >= 90) {
@@ -150,6 +148,8 @@ void InstallSessionService::startPluginInstall(const CatalogEntry& entry, const 
         return;
     }
 
+    const quint64 generation = m_installGeneration.value(entry.id, 0) + 1;
+    m_installGeneration.insert(entry.id, generation);
     m_installingEntries.insert(entry.id);
     const InstallKind detectedKind = plan.analysis.kind;
     m_hooks.syncCatalogInstallKind(entry.id, detectedKind);
@@ -164,7 +164,13 @@ void InstallSessionService::startPluginInstall(const CatalogEntry& entry, const 
 
     m_pluginHost->runInstallAsync(
         plan.installerPlugin, ctx,
-        [this, entry, sourceId, savePath, kind, libId, jobId, detectedKind](const InstallResult& result) {
+        [this, entry, sourceId, savePath, kind, libId, jobId, detectedKind,
+         generation](const InstallResult& result) {
+            // Cancellation (or a new install attempt for the same entry) invalidates
+            // every older callback. Do not let stale async work touch the model/library.
+            if (m_installGeneration.value(entry.id, 0) != generation)
+                return;
+
             m_installingEntries.remove(entry.id);
             if (!result.success) {
                 const QString detail = result.error.isEmpty()
@@ -245,8 +251,6 @@ void InstallSessionService::advanceInstallSession(const QString& entryId)
     const CatalogEntry* parent = m_hooks.findCatalogEntry(entryId);
     if (!parent)
         return;
-    // Don't require isEntryPlayable here: job may still be settling, and Steam DLC
-    // has no separate artifact - mark selected ids as soon as the game is committed.
 
     int installedCount = 1;
     for (const QString& addonId : it->selectedAddonIds) {
@@ -272,7 +276,6 @@ void InstallSessionService::advanceInstallSession(const QString& entryId)
             (addon && !addon->title.isEmpty()) ? addon->title : addonId;
         syncInstallSessionPhase(entryId, stepTitle);
         if (!addon || (!hasHttp && !hasMagnet)) {
-            // Owns_download / Steam DLC (or catalog row missing): already on disk with the game.
             m_hooks.markAddonInstalled(entryId, addonId, addon ? addon->uploadDate : QString());
             ++installedCount;
             continue;
@@ -289,7 +292,6 @@ void InstallSessionService::advanceInstallSession(const QString& entryId)
             }
             if (addonJobActive)
                 return;
-            // Stalled addon (no file, no job) - skip so the parent job can finish.
             m_hooks.markAddonInstalled(entryId, addonId, addon ? addon->uploadDate : QString());
             ++installedCount;
             continue;
@@ -313,6 +315,13 @@ void InstallSessionService::completePluginDownload(const CatalogEntry& entry, co
                                                    const QString& savePath, const QString& libraryId,
                                                    const QString& artifactPath, const QString& jobId)
 {
+    if (!jobId.isEmpty()) {
+        if (const JobEntry* job = m_jobStore->jobById(jobId)) {
+            if (job->status == QStringLiteral("cancelled"))
+                return;
+        }
+    }
+
     commitInstalledCatalogGame(entry, sourceId, savePath, libraryId, artifactPath, entry.installKind);
     if (GameInstallSession* session = m_installSessions.contains(entry.id) ? &m_installSessions[entry.id]
                                                                              : nullptr) {
@@ -327,6 +336,9 @@ void InstallSessionService::completePluginDownload(const CatalogEntry& entry, co
 
 void InstallSessionService::cancelEntry(const QString& entryId)
 {
+    // Invalidate callbacks before clearing state. A plugin/installer may finish later;
+    // that result belongs to the cancelled generation and must be ignored.
+    m_installGeneration.insert(entryId, m_installGeneration.value(entryId, 0) + 1);
     m_installingEntries.remove(entryId);
     clearSession(entryId);
 }
