@@ -6,8 +6,8 @@ import Qcm.Material as MD
 Rectangle {
     id: root
 
-    implicitHeight: 46
-    radius: 14
+    implicitHeight: 50
+    radius: 15
     color: MD.Token.color.surface_container_high
     border.width: 1
     border.color: MD.Token.color.outline_variant
@@ -17,18 +17,16 @@ Rectangle {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 16
-        anchors.rightMargin: 16
-        spacing: 18
-
-        Item { Layout.fillWidth: true }
+        anchors.leftMargin: 14
+        anchors.rightMargin: 14
+        spacing: 14
 
         RowLayout {
-            spacing: 7
+            spacing: 6
             Rectangle {
-                Layout.preferredWidth: 26
-                Layout.preferredHeight: 26
-                radius: 13
+                Layout.preferredWidth: 28
+                Layout.preferredHeight: 28
+                radius: 14
                 color: MD.Token.color.primary
                 MD.Label {
                     anchors.centerIn: parent
@@ -45,11 +43,11 @@ Rectangle {
         }
 
         RowLayout {
-            spacing: 7
+            spacing: 6
             Rectangle {
-                Layout.preferredWidth: 26
-                Layout.preferredHeight: 26
-                radius: 13
+                Layout.preferredWidth: 28
+                Layout.preferredHeight: 28
+                radius: 14
                 color: MD.Token.color.surface_container_highest
                 border.width: 1
                 border.color: MD.Token.color.outline
@@ -68,17 +66,17 @@ Rectangle {
         }
 
         RowLayout {
-            spacing: 7
+            spacing: 6
             Rectangle {
-                Layout.preferredWidth: 54
-                Layout.preferredHeight: 26
-                radius: 13
+                Layout.preferredWidth: 86
+                Layout.preferredHeight: 28
+                radius: 14
                 color: MD.Token.color.surface_container_highest
                 border.width: 1
                 border.color: MD.Token.color.outline
                 MD.Label {
                     anchors.centerIn: parent
-                    text: "D-PAD"
+                    text: "D-PAD / STICK"
                     color: MD.Token.color.on_surface
                     typescale: MD.Token.typescale.label_small
                 }
@@ -90,6 +88,27 @@ Rectangle {
             }
         }
 
-        Item { Layout.fillWidth: true }
+        RowLayout {
+            spacing: 6
+            Rectangle {
+                Layout.preferredWidth: 62
+                Layout.preferredHeight: 28
+                radius: 14
+                color: MD.Token.color.surface_container_highest
+                border.width: 1
+                border.color: MD.Token.color.outline
+                MD.Label {
+                    anchors.centerIn: parent
+                    text: "L1 / R1"
+                    color: MD.Token.color.on_surface
+                    typescale: MD.Token.typescale.label_small
+                }
+            }
+            MD.Label {
+                text: qsTr("Previous / Next")
+                color: MD.Token.color.on_surface
+                typescale: MD.Token.typescale.label_medium
+            }
+        }
     }
 }
