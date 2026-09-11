@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QStandardPaths>
 
 #if defined(Q_OS_WIN)
 #ifndef NOMINMAX
@@ -192,14 +193,29 @@ QString shellSingleQuote(QString value)
 QString makePluginSafeProtonLauncher(const QString& protonExecutable,
                                      const QString& compatDataPath)
 {
-    if (protonExecutable.isEmpty() || compatDataPath.isEmpty())
+    if (protonExecutable.isEmpty())
         return protonExecutable;
 
-    if (!QDir().mkpath(compatDataPath))
+    // Keep the helper outside the Proton prefix. Installers/plugins are allowed to recreate or
+    // wipe compatDataPath while preparing a fresh prefix; when the helper lived there it could be
+    // deleted immediately before QProcess tried to execute it, producing FailedToStart.
+    QString runtimeRoot = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (runtimeRoot.isEmpty())
         return protonExecutable;
+    runtimeRoot = QDir(runtimeRoot).filePath(QStringLiteral("runtime"));
+    if (!QDir().mkpath(runtimeRoot))
+        return protonExecutable;
+
+    QString launcherId = QFileInfo(compatDataPath).fileName();
+    if (launcherId.isEmpty())
+        launcherId = QStringLiteral("default");
+    for (QChar& ch : launcherId) {
+        if (!ch.isLetterOrNumber() && ch != QLatin1Char('-') && ch != QLatin1Char('_'))
+            ch = QLatin1Char('_');
+    }
 
     const QString launcherPath =
-        QDir(compatDataPath).filePath(QStringLiteral(".arachnel-proton-launcher"));
+        QDir(runtimeRoot).filePath(QStringLiteral("arachnel-proton-launcher-%1").arg(launcherId));
     const QByteArray desired =
         QByteArrayLiteral("#!/bin/sh\n"
                           "unset LD_LIBRARY_PATH STEAM_RUNTIME STEAM_RUNTIME_LIBRARY_PATH\n"
