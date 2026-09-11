@@ -65,6 +65,25 @@ void InstallSessionService::startPluginInstall(const CatalogEntry& entry, const 
         ctx.entryId, m_settings->resolvedProtonId(QString(), *m_protonManager),
         &ctx.protonExecutable, &ctx.compatDataPath, &ctx.steamCompatClientPath);
 
+    // QProcess performs chdir before exec. Source plugins commonly use targetPath as the
+    // installer working directory, so a brand-new game whose target folder does not exist yet
+    // makes Proton fail at waitForStarted() even though the Proton executable itself is valid.
+    // Prepare both directories in the host before handing the context to any plugin.
+    QString preparationError;
+    if (!ctx.targetPath.isEmpty() && !QDir().mkpath(ctx.targetPath)) {
+        preparationError = QCoreApplication::translate("Core", "Could not create install directory: %1")
+                               .arg(ctx.targetPath);
+    } else if (!ctx.compatDataPath.isEmpty() && !QDir().mkpath(ctx.compatDataPath)) {
+        preparationError = QCoreApplication::translate("Core", "Could not create Proton prefix directory: %1")
+                               .arg(ctx.compatDataPath);
+    }
+    if (!preparationError.isEmpty()) {
+        if (!jobId.isEmpty())
+            m_jobOrchestrator->setJobPhase(jobId, QStringLiteral("failed"), preparationError);
+        m_hooks.showNotice(preparationError, true);
+        return;
+    }
+
     // Generic portable-ready fast path. Some source plugins classify a payload as an installer
     // even when the complete game tree and its real executable are already present. Prefer what
     // is actually on disk: when the core analyzer confidently finds a playable executable and no
