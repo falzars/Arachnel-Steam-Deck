@@ -26,6 +26,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Network
     Qml
     Quick
+    QuickPrivate
     QuickControls2
     ShaderTools
     Concurrent
