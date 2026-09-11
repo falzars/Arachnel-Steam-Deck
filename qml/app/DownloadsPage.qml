@@ -38,9 +38,19 @@ Item {
             const restore = list.visible && list.count > 0
                     && !list.moving && !list.flicking && !list.dragging
             const y = restore ? list.contentY : 0
+            const selectedJobId = list.currentIndex >= 0 && list.currentIndex < groupsModel.count
+                    ? (groupsModel.get(list.currentIndex).jobId ?? "") : ""
             groupsModel.clear()
-            for (let i = 0; i < next.length; ++i)
+            let restoredIndex = -1
+            for (let i = 0; i < next.length; ++i) {
                 groupsModel.append({ group: next[i], jobId: next[i].jobId ?? "" })
+                if (selectedJobId.length && selectedJobId === (next[i].jobId ?? ""))
+                    restoredIndex = i
+            }
+            if (groupsModel.count > 0)
+                list.currentIndex = restoredIndex >= 0 ? restoredIndex : Math.min(Math.max(0, list.currentIndex), groupsModel.count - 1)
+            else
+                list.currentIndex = -1
             if (!restore)
                 return
             function restoreY() {
@@ -88,6 +98,20 @@ Item {
         return Core.jobs.count - Core.jobs.activeCount
     }
 
+    function selectedGroup() {
+        if (jobsList.currentIndex < 0 || jobsList.currentIndex >= groupsModel.count)
+            return null
+        return groupsModel.get(jobsList.currentIndex).group
+    }
+
+    function moveControllerSelection(delta) {
+        if (groupsModel.count <= 0)
+            return
+        jobsList.currentIndex = Math.max(0, Math.min(groupsModel.count - 1,
+                                                     jobsList.currentIndex + delta))
+        jobsList.positionViewAtIndex(jobsList.currentIndex, ListView.Contain)
+    }
+
     Connections {
         target: Core.jobs
         function onJobsChanged() { root.refreshGroups() }
@@ -98,7 +122,7 @@ Item {
 
     signal openGame(string gameId)
 
-    // ── Empty (как «Нет игр» в каталоге) ─────────────────────────────────────
+    // ── Empty ─────────────────────────────────────────────────────────────────
     Item {
         anchors.fill: parent
         visible: root.downloadsEmpty
@@ -137,7 +161,7 @@ Item {
         }
     }
 
-    // ── Список загрузок ────────────────────────────────────────────────────────
+    // ── Download list ─────────────────────────────────────────────────────────
     ColumnLayout {
         anchors.fill: parent
         spacing: MD.Token.spacing.medium
@@ -199,15 +223,58 @@ Item {
             reuseItems: true
             cacheBuffer: height * 2
             model: groupsModel
+            activeFocusOnTab: true
+            currentIndex: count > 0 ? 0 : -1
+
+            Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Down) {
+                    root.moveControllerSelection(1)
+                    event.accepted = true
+                } else if (event.key === Qt.Key_Up) {
+                    root.moveControllerSelection(-1)
+                    event.accepted = true
+                } else if (event.key === Qt.Key_Right) {
+                    const group = root.selectedGroup()
+                    if (group && (group.entryId ?? "").length)
+                        root.setGroupExpanded(group.entryId, true)
+                    event.accepted = true
+                } else if (event.key === Qt.Key_Left) {
+                    const group = root.selectedGroup()
+                    if (group && (group.entryId ?? "").length && root.isGroupExpanded(group.entryId)) {
+                        root.setGroupExpanded(group.entryId, false)
+                    } else {
+                        const previous = jobsList.nextItemInFocusChain(false)
+                        if (previous && previous !== jobsList)
+                            previous.forceActiveFocus(Qt.TabFocusReason)
+                    }
+                    event.accepted = true
+                } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                    const group = root.selectedGroup()
+                    const entryId = group ? (group.entryId ?? "") : ""
+                    if (entryId.length)
+                        root.openGame(entryId)
+                    event.accepted = true
+                }
+            }
 
             ScrollBar.vertical: MD.ScrollBar {
                 policy: ScrollBar.AsNeeded
+            }
+
+            highlightFollowsCurrentItem: true
+            highlightMoveDuration: 90
+            highlight: Rectangle {
+                radius: MD.Token.shape.corner.extra_large
+                color: "transparent"
+                border.width: jobsList.activeFocus ? 2 : 0
+                border.color: MD.Token.color.primary
             }
 
             delegate: Item {
                 id: rowRoot
                 width: jobsList.width
                 height: Math.ceil(card.implicitHeight)
+                required property int index
                 required property var group
                 required property string jobId
 
@@ -220,6 +287,14 @@ Item {
                         root.setGroupExpanded(rowRoot.group.entryId ?? "", value)
                     }
                     onOpenDetails: function (entryId) { root.openGame(entryId) }
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.NoButton
+                    hoverEnabled: true
+                    onEntered: jobsList.currentIndex = rowRoot.index
+                    z: -1
                 }
             }
         }
