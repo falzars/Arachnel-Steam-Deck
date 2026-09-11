@@ -187,6 +187,9 @@ bool HttpDownloadSession::addJob(const QString& jobId, const QString& url, const
 
         const QNetworkReply::NetworkError networkError = reply->error();
         const QString networkErrorString = reply->errorString();
+        const QString contentDisposition =
+            reply->header(QNetworkRequest::ContentDispositionHeader).toString();
+        const QUrl finalUrl = reply->url();
         reply->deleteLater();
         delete download.file;
         download.file = nullptr;
@@ -199,12 +202,9 @@ bool HttpDownloadSession::addJob(const QString& jobId, const QString& url, const
             return;
         }
 
-        QString fileName = filenameFromContentDisposition(
-            reply->header(QNetworkRequest::ContentDispositionHeader).toString());
-        if (fileName.isEmpty()) {
-            const QUrl sourceUrl(reply->url());
-            fileName = QFileInfo(sourceUrl.path()).fileName();
-        }
+        QString fileName = filenameFromContentDisposition(contentDisposition);
+        if (fileName.isEmpty())
+            fileName = QFileInfo(finalUrl.path()).fileName();
         fileName = sanitizeFileName(fileName);
         if (fileName.isEmpty())
             fileName = QStringLiteral("download.bin");
