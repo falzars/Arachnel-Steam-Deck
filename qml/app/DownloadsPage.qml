@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import QtQuick.Window
 
 import Arachnel.Core 1.0
 import Qcm.Material as MD
@@ -110,6 +111,28 @@ Item {
         jobsList.currentIndex = Math.max(0, Math.min(groupsModel.count - 1,
                                                      jobsList.currentIndex + delta))
         jobsList.positionViewAtIndex(jobsList.currentIndex, ListView.Contain)
+    }
+
+    function moveControllerFocus(forward) {
+        const window = root.Window.window
+        const current = window ? window.activeFocusItem : null
+        const source = current && current.nextItemInFocusChain ? current : root
+        const next = source.nextItemInFocusChain(forward)
+        if (next && next !== source)
+            next.forceActiveFocus(Qt.TabFocusReason)
+    }
+
+    // Download rows handle their own D-pad navigation. If focus is on a normal
+    // action button (for example Clear finished / pause / cancel), keep the D-pad
+    // moving through the focus chain rather than stranding controller users.
+    Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_Right || event.key === Qt.Key_Down) {
+            root.moveControllerFocus(true)
+            event.accepted = true
+        } else if (event.key === Qt.Key_Left || event.key === Qt.Key_Up) {
+            root.moveControllerFocus(false)
+            event.accepted = true
+        }
     }
 
     Connections {
@@ -246,7 +269,8 @@ Item {
                             previous.forceActiveFocus(Qt.TabFocusReason)
                     }
                     event.accepted = true
-                } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                           || event.key === Qt.Key_Space || event.key === Qt.Key_Select) {
                     const group = root.selectedGroup()
                     const entryId = group ? (group.entryId ?? "") : ""
                     if (entryId.length)
