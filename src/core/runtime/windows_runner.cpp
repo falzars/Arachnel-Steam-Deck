@@ -4,6 +4,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QProcess>
 #include <QProcessEnvironment>
@@ -181,6 +182,50 @@ bool isWindowsExecutable(const QString& path)
     return path.endsWith(QStringLiteral(".exe"), Qt::CaseInsensitive);
 }
 
+#if defined(Q_OS_LINUX)
+bool configureProtonProcess(QProcess& process, const QString& protonExecutable,
+                            const QStringList& protonArgs, QString* errorOut)
+{
+    const QFileInfo info(protonExecutable);
+    if (!info.exists() || !info.isFile()) {
+        if (errorOut)
+            *errorOut = QCoreApplication::translate("Core", "Proton executable not found: %1")
+                            .arg(protonExecutable);
+        return false;
+    }
+
+    // Proton is a script. Launch it through the interpreter declared by its shebang instead of
+    // relying on the executable bit / kernel script handling. Steam Deck installations can keep a
+    // perfectly valid Proton script that QProcess otherwise reports as FailedToStart.
+    QFile script(protonExecutable);
+    if (script.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        const QString firstLine = QString::fromUtf8(script.readLine()).trimmed();
+        if (firstLine.startsWith(QStringLiteral("#!"))) {
+            QStringList interpreter = QProcess::splitCommand(firstLine.mid(2).trimmed());
+            if (!interpreter.isEmpty()) {
+                process.setProgram(interpreter.takeFirst());
+                QStringList args = interpreter;
+                args.append(protonExecutable);
+                args.append(protonArgs);
+                process.setArguments(args);
+                return true;
+            }
+        }
+    }
+
+    if (info.isExecutable()) {
+        process.setProgram(protonExecutable);
+        process.setArguments(protonArgs);
+        return true;
+    }
+
+    if (errorOut)
+        *errorOut = QCoreApplication::translate("Core", "Proton script is not executable: %1")
+                        .arg(protonExecutable);
+    return false;
+}
+#endif
+
 } // namespace
 
 void fillProtonInstallFields(const QString& entryId, const QString& preferredProtonId,
@@ -262,8 +307,8 @@ bool runWindowsProgramAndWait(const QString& program, const QStringList& argumen
     protonArgs += arguments;
 
     QProcess process;
-    process.setProgram(env.protonExecutable);
-    process.setArguments(protonArgs);
+    if (!configureProtonProcess(process, env.protonExecutable, protonArgs, errorOut))
+        return false;
     process.setWorkingDirectory(workDir);
     process.setProcessEnvironment(qenv);
     return runProcess(process, timeoutMs, errorOut);
