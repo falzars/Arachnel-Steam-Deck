@@ -122,7 +122,6 @@ Item {
 
     signal openGame(string gameId)
 
-    // ── Empty ─────────────────────────────────────────────────────────────────
     Item {
         anchors.fill: parent
         visible: root.downloadsEmpty
@@ -161,7 +160,6 @@ Item {
         }
     }
 
-    // ── Download list ─────────────────────────────────────────────────────────
     ColumnLayout {
         anchors.fill: parent
         spacing: MD.Token.spacing.medium
@@ -277,11 +275,14 @@ Item {
                 required property int index
                 required property var group
                 required property string jobId
+                property alias cardItem: card
 
                 DownloadJobGroupCard {
                     id: card
                     width: parent.width
                     group: rowRoot.group
+                    controllerIndex: rowRoot.index
+                    controllerView: jobsList
                     expanded: root.isGroupExpanded(rowRoot.group.entryId ?? "")
                     onExpansionToggled: function (value) {
                         root.setGroupExpanded(rowRoot.group.entryId ?? "", value)
