@@ -17,6 +17,8 @@ void JobOrchestrator::completePluginDownload(const QString& jobId, const QString
     if (row < 0)
         return;
     JobEntry job = jobFromModelRow(row);
+    if (isJobTerminal(job.status))
+        return;
     job.status = QStringLiteral("completed");
     job.progress = 100;
     job.detail = QStringLiteral("Installed");
@@ -37,6 +39,8 @@ void JobOrchestrator::failPluginDownload(const QString& jobId, const QString& er
     if (row < 0)
         return;
     JobEntry job = jobFromModelRow(row);
+    if (isJobTerminal(job.status))
+        return;
     job.status = QStringLiteral("failed");
     job.detail = error.isEmpty() ? QStringLiteral("Failed") : error;
     job.completedAt = isoNow();
@@ -101,17 +105,9 @@ void JobOrchestrator::cancelJob(const QString& jobId)
     if (job.kind == JobKind::Move)
         return;
 
-    if (job.pluginDownload) {
-        // CoreController/PluginHost cancel the plugin work; mark job here.
-    } else if (job.httpDownload) {
-        if (isJobRunning(job.status) || job.status == QStringLiteral("starting"))
-            m_http->cancel(jobId);
-    } else if (isJobRunning(job.status) || job.status == QStringLiteral("starting")) {
-        m_torrent->cancel(jobId, true);
-    } else {
-        m_torrent->removeResumeFile(jobId);
-    }
-
+    // Publish the terminal state before asking the backend to abort. Network/session
+    // backends are allowed to emit a final progress/failure callback synchronously from
+    // cancel(); those callbacks must see "cancelled" and become harmless no-ops.
     job.status = QStringLiteral("cancelled");
     job.detail = QStringLiteral("Cancelled");
     job.completedAt = isoNow();
@@ -119,6 +115,19 @@ void JobOrchestrator::cancelJob(const QString& jobId)
     persistJob(job);
     m_jobKinds.remove(jobId);
     m_pluginSpeed.remove(jobId);
+    m_pluginEstimatedTotal.remove(jobId);
+
+    if (job.pluginDownload) {
+        // CoreController/PluginHost owns the actual plugin cancellation.
+    } else if (job.httpDownload) {
+        m_http->cancel(jobId);
+    } else if (isJobRunning(job.status) || job.status == QStringLiteral("starting")) {
+        m_torrent->cancel(jobId, true);
+    } else {
+        // The state was changed above, so use the original job state to decide whether
+        // there is an active backend session. Non-running jobs only need resume cleanup.
+        m_torrent->removeResumeFile(jobId);
+    }
 }
 
 void JobOrchestrator::toggleJobPause(const QString& jobId)
@@ -307,6 +316,9 @@ void JobOrchestrator::setJobPhase(const QString& jobId, const QString& status,
         return;
 
     JobEntry job = jobFromModelRow(row);
+    // A late installer/backend callback must never resurrect a cancelled job.
+    if (job.status == QStringLiteral("cancelled") && status != QStringLiteral("cancelled"))
+        return;
     job.status = status;
     job.detail = detail;
     if (isJobTerminal(status))
@@ -324,6 +336,8 @@ void JobOrchestrator::onTorrentFinished(const QString& jobId, const QString& sav
         return;
 
     JobEntry job = jobFromModelRow(row);
+    if (isJobTerminal(job.status))
+        return;
     const JobKind kind = m_jobKinds.value(jobId, JobKind::Download);
 
     job.status = QStringLiteral("completed");
@@ -341,14 +355,17 @@ void JobOrchestrator::onTorrentFinished(const QString& jobId, const QString& sav
 void JobOrchestrator::onTorrentFailed(const QString& jobId, const QString& error)
 {
     const int row = m_jobs->indexOfJob(jobId);
-    if (row >= 0) {
-        JobEntry job = jobFromModelRow(row);
-        job.status = QStringLiteral("failed");
-        job.detail = error;
-        job.completedAt = isoNow();
-        updateJobInModel(job);
-        persistJob(job);
-    }
+    if (row < 0)
+        return;
+    JobEntry job = jobFromModelRow(row);
+    if (isJobTerminal(job.status))
+        return;
+
+    job.status = QStringLiteral("failed");
+    job.detail = error;
+    job.completedAt = isoNow();
+    updateJobInModel(job);
+    persistJob(job);
 
     emit downloadFailed(jobId, error);
     m_jobKinds.remove(jobId);
@@ -362,6 +379,8 @@ void JobOrchestrator::onHttpProgress(const QString& jobId, int progress, qint64 
         return;
 
     JobEntry job = jobFromModelRow(row);
+    if (isJobTerminal(job.status))
+        return;
     job.progress = progress;
     job.bytesDownloaded = downloaded;
     job.totalBytes = total;
@@ -389,6 +408,8 @@ void JobOrchestrator::onHttpFinished(const QString& jobId, const QString& filePa
         return;
 
     JobEntry job = jobFromModelRow(row);
+    if (isJobTerminal(job.status))
+        return;
     const JobKind kind = m_jobKinds.value(jobId, JobKind::Download);
 
     job.status = QStringLiteral("completed");
@@ -406,14 +427,17 @@ void JobOrchestrator::onHttpFinished(const QString& jobId, const QString& filePa
 void JobOrchestrator::onHttpFailed(const QString& jobId, const QString& error)
 {
     const int row = m_jobs->indexOfJob(jobId);
-    if (row >= 0) {
-        JobEntry job = jobFromModelRow(row);
-        job.status = QStringLiteral("failed");
-        job.detail = error;
-        job.completedAt = isoNow();
-        updateJobInModel(job);
-        persistJob(job);
-    }
+    if (row < 0)
+        return;
+    JobEntry job = jobFromModelRow(row);
+    if (isJobTerminal(job.status))
+        return;
+
+    job.status = QStringLiteral("failed");
+    job.detail = error;
+    job.completedAt = isoNow();
+    updateJobInModel(job);
+    persistJob(job);
 
     emit downloadFailed(jobId, error);
     m_jobKinds.remove(jobId);
