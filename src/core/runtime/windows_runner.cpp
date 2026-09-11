@@ -183,6 +183,57 @@ bool isWindowsExecutable(const QString& path)
 }
 
 #if defined(Q_OS_LINUX)
+QString shellSingleQuote(QString value)
+{
+    value.replace(QLatin1Char('\''), QStringLiteral("'\"'\"'"));
+    return QLatin1Char('\'') + value + QLatin1Char('\'');
+}
+
+QString makePluginSafeProtonLauncher(const QString& protonExecutable,
+                                     const QString& compatDataPath)
+{
+    if (protonExecutable.isEmpty() || compatDataPath.isEmpty())
+        return protonExecutable;
+
+    if (!QDir().mkpath(compatDataPath))
+        return protonExecutable;
+
+    const QString launcherPath =
+        QDir(compatDataPath).filePath(QStringLiteral(".arachnel-proton-launcher"));
+    const QByteArray desired =
+        QByteArrayLiteral("#!/bin/sh\n"
+                          "unset LD_LIBRARY_PATH STEAM_RUNTIME STEAM_RUNTIME_LIBRARY_PATH\n"
+                          "exec ")
+        + shellSingleQuote(protonExecutable).toUtf8() + QByteArrayLiteral(" \"$@\"\n");
+
+    bool needsWrite = true;
+    QFile existing(launcherPath);
+    if (existing.open(QIODevice::ReadOnly)) {
+        needsWrite = existing.readAll() != desired;
+        existing.close();
+    }
+
+    if (needsWrite) {
+        QFile launcher(launcherPath);
+        if (!launcher.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
+            return protonExecutable;
+        if (launcher.write(desired) != desired.size()) {
+            launcher.close();
+            return protonExecutable;
+        }
+        launcher.close();
+    }
+
+    const QFileDevice::Permissions permissions =
+        QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner
+        | QFileDevice::ReadGroup | QFileDevice::ExeGroup | QFileDevice::ReadOther
+        | QFileDevice::ExeOther;
+    if (!QFile::setPermissions(launcherPath, permissions))
+        return protonExecutable;
+
+    return launcherPath;
+}
+
 bool configureProtonProcess(QProcess& process, const QString& protonExecutable,
                             const QStringList& protonArgs, QString* errorOut)
 {
@@ -244,16 +295,14 @@ void fillProtonInstallFields(const QString& entryId, const QString& preferredPro
         return;
 
     ProtonManager manager;
-    const QString proton = manager.executableForId(preferredProtonId);
-    if (proton.isEmpty()) {
-        const QString fallback = manager.resolveProtonExecutable(preferredProtonId);
-        if (fallback.isEmpty())
-            return;
-        *protonExecutable = fallback;
-    } else {
-        *protonExecutable = proton;
-    }
+    QString resolvedProton = manager.executableForId(preferredProtonId);
+    if (resolvedProton.isEmpty())
+        resolvedProton = manager.resolveProtonExecutable(preferredProtonId);
+    if (resolvedProton.isEmpty())
+        return;
+
     *compatDataPath = manager.compatDataPathForGame(entryId);
+    *protonExecutable = makePluginSafeProtonLauncher(resolvedProton, *compatDataPath);
     *steamCompatClientPath = manager.steamCompatClientPath();
 #endif
 }
