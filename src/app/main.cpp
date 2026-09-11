@@ -1,18 +1,30 @@
 #include <QCoreApplication>
 #include <QDir>
+#include <QEvent>
+#include <QGuiApplication>
 #include <QIcon>
+#include <QKeyEvent>
 #include <QPixmapCache>
 #include <QQmlApplicationEngine>
 #include <QQmlError>
 #include <QStyleHints>
 #include <QString>
 #include <QTimer>
+#include <QWindow>
+#include <array>
+#include <cerrno>
 #include <cstdio>
 
 #if !defined(Q_OS_WIN)
 #include <QApplication>
 #else
 #include <QGuiApplication>
+#endif
+
+#if defined(Q_OS_LINUX)
+#include <fcntl.h>
+#include <linux/joystick.h>
+#include <unistd.h>
 #endif
 
 #include "core/facade/core_controller.h"
@@ -27,6 +39,234 @@
 #endif
 
 namespace {
+
+#if defined(Q_OS_LINUX)
+class LinuxGamepadKeyBridge final : public QObject {
+public:
+    explicit LinuxGamepadKeyBridge(QObject* parent = nullptr)
+        : QObject(parent)
+    {
+        m_pollTimer.setInterval(8);
+        QObject::connect(&m_pollTimer, &QTimer::timeout, this, [this]() { pollController(); });
+        m_pollTimer.start();
+
+        m_rescanTimer.setInterval(1500);
+        QObject::connect(&m_rescanTimer, &QTimer::timeout, this, [this]() { tryOpenController(); });
+        m_rescanTimer.start();
+
+        m_repeatDelay.setSingleShot(true);
+        m_repeatDelay.setInterval(320);
+        QObject::connect(&m_repeatDelay, &QTimer::timeout, this, [this]() {
+            if (m_repeatKey != 0)
+                m_repeatTimer.start();
+        });
+
+        m_repeatTimer.setInterval(90);
+        QObject::connect(&m_repeatTimer, &QTimer::timeout, this, [this]() {
+            if (m_repeatKey != 0)
+                dispatchKey(m_repeatKey);
+        });
+
+        tryOpenController();
+    }
+
+    ~LinuxGamepadKeyBridge() override
+    {
+        closeController();
+    }
+
+private:
+    static int directionForValue(qint16 value)
+    {
+        constexpr int deadZone = 16000;
+        if (value > deadZone)
+            return 1;
+        if (value < -deadZone)
+            return -1;
+        return 0;
+    }
+
+    QObject* keyTarget() const
+    {
+        if (QObject* focus = QGuiApplication::focusObject())
+            return focus;
+        if (QWindow* window = QGuiApplication::focusWindow())
+            return window;
+        return nullptr;
+    }
+
+    void dispatchKey(int key, Qt::KeyboardModifiers modifiers = Qt::NoModifier)
+    {
+        QObject* target = keyTarget();
+        if (!target)
+            return;
+
+        QCoreApplication::postEvent(
+            target, new QKeyEvent(QEvent::KeyPress, key, modifiers));
+        QCoreApplication::postEvent(
+            target, new QKeyEvent(QEvent::KeyRelease, key, modifiers));
+    }
+
+    void beginRepeat(int key)
+    {
+        m_repeatTimer.stop();
+        m_repeatDelay.stop();
+        m_repeatKey = key;
+        if (key != 0) {
+            dispatchKey(key);
+            m_repeatDelay.start();
+        }
+    }
+
+    void stopRepeatIf(int key)
+    {
+        if (m_repeatKey != key)
+            return;
+        m_repeatKey = 0;
+        m_repeatDelay.stop();
+        m_repeatTimer.stop();
+    }
+
+    static int keyForAxis(int axis, int direction)
+    {
+        if (direction == 0)
+            return 0;
+        if (axis == 0 || axis == 6)
+            return direction < 0 ? Qt::Key_Left : Qt::Key_Right;
+        if (axis == 1 || axis == 7)
+            return direction < 0 ? Qt::Key_Up : Qt::Key_Down;
+        return 0;
+    }
+
+    void handleAxis(unsigned char axis, qint16 value)
+    {
+        if (axis >= m_axisDirection.size())
+            return;
+        if (axis != 0 && axis != 1 && axis != 6 && axis != 7)
+            return;
+
+        const int oldDirection = m_axisDirection[axis];
+        const int newDirection = directionForValue(value);
+        if (oldDirection == newDirection)
+            return;
+
+        const int oldKey = keyForAxis(axis, oldDirection);
+        const int newKey = keyForAxis(axis, newDirection);
+        m_axisDirection[axis] = newDirection;
+
+        if (newKey != 0)
+            beginRepeat(newKey);
+        else if (oldKey != 0)
+            stopRepeatIf(oldKey);
+    }
+
+    void handleButton(unsigned char button, bool pressed)
+    {
+        if (!pressed)
+            return;
+
+        // Steam Input's virtual Xbox layout and the Deck's Linux joystick layout
+        // both use the standard face-button order here.
+        switch (button) {
+        case 0: // A
+            dispatchKey(Qt::Key_Return);
+            break;
+        case 1: // B
+            dispatchKey(Qt::Key_Escape);
+            break;
+        case 2: // X
+            dispatchKey(Qt::Key_Space);
+            break;
+        case 4: // L1
+            dispatchKey(Qt::Key_Backtab, Qt::ShiftModifier);
+            break;
+        case 5: // R1
+            dispatchKey(Qt::Key_Tab);
+            break;
+        case 6: // View / Back
+            dispatchKey(Qt::Key_Escape);
+            break;
+        default:
+            break;
+        }
+    }
+
+    void handleEvent(const js_event& event)
+    {
+        if (event.type & JS_EVENT_INIT)
+            return;
+
+        const unsigned char type = event.type & ~JS_EVENT_INIT;
+        if (type == JS_EVENT_AXIS)
+            handleAxis(event.number, event.value);
+        else if (type == JS_EVENT_BUTTON)
+            handleButton(event.number, event.value != 0);
+    }
+
+    void tryOpenController()
+    {
+        if (m_fd >= 0)
+            return;
+
+        for (int i = 0; i < 8; ++i) {
+            const QByteArray path = QByteArrayLiteral("/dev/input/js") + QByteArray::number(i);
+            const int fd = ::open(path.constData(), O_RDONLY | O_NONBLOCK);
+            if (fd < 0)
+                continue;
+
+            m_fd = fd;
+            m_axisDirection.fill(0);
+            std::fprintf(stderr, "Arachnel: controller input active on %s\n", path.constData());
+            std::fflush(stderr);
+            return;
+        }
+    }
+
+    void closeController()
+    {
+        if (m_fd >= 0) {
+            ::close(m_fd);
+            m_fd = -1;
+        }
+        m_axisDirection.fill(0);
+        m_repeatKey = 0;
+        m_repeatDelay.stop();
+        m_repeatTimer.stop();
+    }
+
+    void pollController()
+    {
+        if (m_fd < 0) {
+            tryOpenController();
+            return;
+        }
+
+        for (;;) {
+            js_event event{};
+            const ssize_t readSize = ::read(m_fd, &event, sizeof(event));
+            if (readSize == static_cast<ssize_t>(sizeof(event))) {
+                handleEvent(event);
+                continue;
+            }
+
+            if (readSize < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+                break;
+
+            if (readSize == 0 || (readSize < 0 && errno != EINTR))
+                closeController();
+            break;
+        }
+    }
+
+    int m_fd = -1;
+    std::array<int, 8> m_axisDirection{};
+    int m_repeatKey = 0;
+    QTimer m_pollTimer;
+    QTimer m_rescanTimer;
+    QTimer m_repeatDelay;
+    QTimer m_repeatTimer;
+};
+#endif
 
 void configureSteamDeckPlatform()
 {
@@ -113,6 +353,10 @@ int main(int argc, char* argv[])
     QApplication app(argc, argv);
 #else
     QGuiApplication app(argc, argv);
+#endif
+
+#if defined(Q_OS_LINUX)
+    LinuxGamepadKeyBridge gamepadBridge(&app);
 #endif
 
     arachnel::configureApplicationIdentity();
