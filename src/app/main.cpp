@@ -68,7 +68,8 @@ public:
         m_repeatTimer.setInterval(110);
         QObject::connect(&m_repeatTimer, &QTimer::timeout, this, [this]() {
             if (m_repeatKey != 0)
-                dispatchKey(m_repeatKey);
+                dispatchKey(m_repeatKey, m_repeatKey == Qt::Key_Backtab ? Qt::ShiftModifier
+                                                                        : Qt::NoModifier);
         });
 
         tryOpenController();
@@ -123,7 +124,7 @@ private:
         m_repeatDelay.stop();
         m_repeatKey = key;
         if (key != 0) {
-            dispatchKey(key);
+            dispatchKey(key, key == Qt::Key_Backtab ? Qt::ShiftModifier : Qt::NoModifier);
             m_repeatDelay.start();
         }
     }
@@ -142,13 +143,11 @@ private:
         if (direction == 0)
             return 0;
 
-        // Controller directions use private function keys. Main.qml consumes
-        // them globally and moves focus exactly once, instead of letting several
-        // page-level arrow handlers react to the same physical press.
-        if (axis == 0 || axis == 6)
-            return direction < 0 ? Qt::Key_F15 : Qt::Key_F16;
-        if (axis == 1 || axis == 7)
-            return direction < 0 ? Qt::Key_F13 : Qt::Key_F14;
+        // In Gaming Mode all four navigation directions share one focus path.
+        // This is deliberate: a physical press can no longer trigger both a
+        // page-specific arrow handler and a second global focus move.
+        if (axis == 0 || axis == 1 || axis == 6 || axis == 7)
+            return direction < 0 ? Qt::Key_Backtab : Qt::Key_Tab;
         return 0;
     }
 
@@ -187,10 +186,10 @@ private:
             dispatchKey(Qt::Key_Escape);
             break;
         case 4: // L1: previous focus
-            dispatchKey(Qt::Key_F19);
+            dispatchKey(Qt::Key_Backtab, Qt::ShiftModifier);
             break;
         case 5: // R1: next focus
-            dispatchKey(Qt::Key_F20);
+            dispatchKey(Qt::Key_Tab);
             break;
         case 6: // View / Back
             dispatchKey(Qt::Key_Escape);
@@ -336,16 +335,9 @@ void configureSteamDeckPlatform()
         || !qgetenv("SteamGamepadUI").isEmpty()
         || desktop.contains("gamescope");
 
-    // Make the QML/Core gaming-mode flag reliable even when Gamescope does not
-    // expose XDG_CURRENT_DESKTOP exactly as "gamescope".
     if (inGamescope && !qEnvironmentVariableIsSet("ARACHNEL_GAMING_MODE"))
         qputenv("ARACHNEL_GAMING_MODE", QByteArrayLiteral("1"));
 
-    // The packaged AppImage defaults to xcb. Inside Steam Gaming Mode that
-    // unnecessarily pins Qt to XWayland and can leave the launcher with a dead
-    // X11 connection when Gamescope changes focus/surfaces. Let Qt select the
-    // native platform in Gamescope instead. Desktop sessions keep the original
-    // packaged default and users can still explicitly choose a QPA platform.
     if (inGamescope && qpa == "xcb")
         qunsetenv("QT_QPA_PLATFORM");
 #endif
@@ -504,9 +496,6 @@ int main(int argc, char* argv[])
 
         exitCode = app.exec();
 
-        // Tear down QML while Core is still alive, then shut Core down, then
-        // destroy the engine. Destroying QQmlEngine while plugins/sessions are
-        // mid-teardown caused free(): invalid size on Linux (NixOS AppImage).
         arachnel::markApplicationShuttingDown();
         const QList<QObject*> roots = engine.rootObjects();
         for (QObject* root : roots)
