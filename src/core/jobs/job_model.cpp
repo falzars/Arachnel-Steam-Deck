@@ -35,8 +35,7 @@ QVariantMap jobToMap(const JobEntry& job)
         {QStringLiteral("completedAt"), job.completedAt},
         {QStringLiteral("inProgress"), isJobInProgress(job.status)},
         {QStringLiteral("paused"), isJobPaused(job.status)},
-        {QStringLiteral("installFailed"), job.status == QStringLiteral("failed")
-                                              || isJobInstallFailed(job.detail)},
+        {QStringLiteral("installFailed"), isJobInstallFailed(job.detail)},
     };
 }
 
