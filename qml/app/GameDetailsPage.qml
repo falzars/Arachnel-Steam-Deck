@@ -95,10 +95,9 @@ Item {
         const _rev = root.detailsRevision
         return Core.isEntryDownloadComplete(gameId)
     }
-    readonly property bool downloadFailed: downloadJob.status === "failed"
-        || downloadJob.status === "cancelled"
-    readonly property bool installFailed: !root.downloadFailed
-        && !!(downloadJob.installFailed)
+    readonly property bool installFailed: !!(downloadJob.installFailed)
+    readonly property bool downloadFailed: !root.installFailed
+        && (downloadJob.status === "failed" || downloadJob.status === "cancelled")
     readonly property bool isInstalling: downloadJob.status === "installing"
     readonly property bool readyToInstall: !root.playable
         && !root.installed
