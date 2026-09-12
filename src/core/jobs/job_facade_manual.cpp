@@ -12,7 +12,9 @@ void CoreController::retryInstall(const QString& jobId)
         showNotice(QCoreApplication::translate("Core", "Download not found"));
         return;
     }
-    if (job->status != QStringLiteral("completed")) {
+    const bool retryingInstallFailure =
+        job->status == QStringLiteral("failed") && isJobInstallFailed(job->detail);
+    if (job->status != QStringLiteral("completed") && !retryingInstallFailure) {
         showNotice(QCoreApplication::translate("Core", "Installation is only available for completed downloads"));
         return;
     }
@@ -86,7 +88,11 @@ void CoreController::retryInstall(const QString& jobId)
 bool CoreController::canRetryJobInstall(const QString& jobId) const
 {
     const JobEntry* job = m_jobStore.jobById(jobId);
-    if (!job || job->status != QStringLiteral("completed"))
+    if (!job)
+        return false;
+    const bool retryingInstallFailure =
+        job->status == QStringLiteral("failed") && isJobInstallFailed(job->detail);
+    if (job->status != QStringLiteral("completed") && !retryingInstallFailure)
         return false;
 
     if (isJobInstallFailed(job->detail)) {
